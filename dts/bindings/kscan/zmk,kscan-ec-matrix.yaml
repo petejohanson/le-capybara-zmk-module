@@ -1,0 +1,37 @@
+# Copyright (c) 2020, The ZMK Contributors
+# SPDX-License-Identifier: MIT
+
+description: GPIO keyboard demux controller
+
+compatible: "zmk,kscan-ec-matrix"
+
+include: kscan.yaml
+
+properties:
+  active-polling-interval-ms:
+    type: int
+    default: 1
+  idle-polling-interval-ms:
+    type: int
+    default: 5
+  sleep-polling-interval-ms:
+    type: int
+    default: 500
+  matrix-warm-up-ms:
+    type: int
+  matrix-relax-us:
+    type: int
+  adc-read-settle-us:
+    type: int
+  power-gpios:
+    type: phandle-array
+  input-gpios:
+    type: phandle-array
+    required: true
+  strobe-gpios:
+    type: phandle-array
+    required: true
+  drain-gpios:
+    type: phandle-array
+  io-channels:
+    required: true

@@ -1,0 +1,11 @@
+
+
+if GPIO
+
+config ZMK_GPIO_MUX
+    bool "Multiplexer (mux) GPIO Driver"
+    depends on DT_HAS_ZMK_GPIO_MUX_ENABLED
+    default y
+
+
+endif

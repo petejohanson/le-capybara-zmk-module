@@ -1,0 +1,26 @@
+
+
+if KSCAN
+
+config ZMK_KSCAN_EC_MATRIX
+    bool "EC Matrix KScan Driver"
+    depends on DT_HAS_ZMK_KSCAN_EC_MATRIX_ENABLED
+    default y
+
+if ZMK_KSCAN_EC_MATRIX
+
+config ZMK_KSCAN_EC_MATRIX_THREAD_PRIORITY
+	int "Thread priority"
+	default -1
+	help
+	  Priority of thread used by the driver to handle interrupts.
+
+config ZMK_KSCAN_EC_MATRIX_THREAD_STACK_SIZE
+	int "Thread stack size"
+	default 1024
+	help
+	  Stack size of thread used by the driver to handle interrupts.
+
+endif
+
+endif
