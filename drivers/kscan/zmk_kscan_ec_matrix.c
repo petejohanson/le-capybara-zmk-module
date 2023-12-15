@@ -72,6 +72,12 @@ static void kscan_ec_matrix_read(const struct device *dev)
     const struct kscan_ec_matrix_config *cfg = dev->config;
     struct kscan_ec_matrix_data *data = dev->data;
 
+    uint64_t rows[cfg->strobes_len];
+
+    for (int s = 0; s < cfg->strobes_len; s++) {
+        rows[s] = 0;
+    }
+
     if (cfg->power.port) {
         gpio_pin_set_dt(&cfg->power, 1);
         // The board needs some time to be operational after powering up
@@ -89,11 +95,11 @@ static void kscan_ec_matrix_read(const struct device *dev)
     for (int r = 0; r < cfg->inputs_len; r++) {
         gpio_pin_configure_dt(&cfg->inputs[r], GPIO_INPUT);
 
-        k_busy_wait(cfg->matrix_relax_us);
-        for (int s = 0; s < cfg->strobes_len; s++)  {
+        for (int s = 0; s < cfg->strobes_len; s++) {
 
             bool prev = (data->matrix_state[s] & BIT(r)) != 0;
 
+            // TODO: Only wait as long as is need after drain pin was set low.
             k_busy_wait(cfg->matrix_relax_us);
 
             if (cfg->drain.port != NULL) {
@@ -103,7 +109,6 @@ static void kscan_ec_matrix_read(const struct device *dev)
             const uint32_t lock = irq_lock();
 
             gpio_pin_set_dt(&cfg->strobes[s], 1);
-            // k_busy_wait(10);
             int ret = adc_read(cfg->adc_channel.dev, &sequence);
             if (ret < 0) {
                 LOG_ERR("ADC READ ERROR %d", ret);
@@ -115,8 +120,12 @@ static void kscan_ec_matrix_read(const struct device *dev)
             // 1. Normalize
             // 2. Compare against press/release limits
             // 3. Add to ire list if changed.
-            if (buf > 100) {
-                LOG_DBG("Buffer value: %d for %d, %d", buf, r, s);
+            if (buf > 3800 && !prev) {
+                WRITE_BIT(rows[s], r, 1);
+            } else if (prev && buf < 3500) {
+                WRITE_BIT(rows[s], r, 0);
+            } else {
+                WRITE_BIT(rows[s], r, prev);
             }
 
             gpio_pin_set_dt(&cfg->strobes[s], 0);
@@ -127,24 +136,26 @@ static void kscan_ec_matrix_read(const struct device *dev)
         }
 
         gpio_pin_configure_dt(&cfg->inputs[r], GPIO_DISCONNECTED);
+        k_yield();
     }
 
     if (cfg->power.port) {
         gpio_pin_set_dt(&cfg->power, 0);
     }
 
-    // for (int r = 0; r < MATRIX_ROWS; ++r)
-    // {
-    //     for (int c = 0; c < MATRIX_COLS; ++c)
-    //     {
-    //         int cell = (r * MATRIX_COLS) + c;
-    //         if (data->matrix_state[cell] != matrix_read[cell])
-    //         {
-    //             data->matrix_state[cell] = matrix_read[cell];
-    //             data->callback(data->dev, r, c, matrix_read[cell]);
-    //         }
-    //     }
-    // }
+
+    for (int s = 0; s < cfg->strobes_len; s++) {
+        uint64_t row = rows[s];
+        for (int r = 0; r < cfg->inputs_len; r++) {
+            if ((data->matrix_state[s] & BIT(r)) != (row & BIT(r))) {
+                if (data->callback) {
+                    data->callback(data->dev, s, r, row & BIT(r));
+                }
+            }
+        }
+
+        data->matrix_state[s] = row;
+    }
 }
 
 static void kscan_ec_matrix_thread_main(void *arg1, void *unused1, void *unused2)
