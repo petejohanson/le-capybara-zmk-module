@@ -38,6 +38,7 @@
         zephyr,sram = &sram0;
         zephyr,flash = &flash0;
         zephyr,console = &cdc_acm_uart;
+        zephyr,shell-uart = &cdc_acm_uart;
         zmk,kscan = &kscan;
         zmk,matrix_transform = &transform;
         zephyr,display = &oled;
@@ -147,6 +148,9 @@
 
 &usb {
     status = "okay";
+    // Overriden to lower RAM usage.
+    num-bidir-endpoints = <5>;
+
     cdc_acm_uart: cdc_acm_uart {
         compatible = "zephyr,cdc-acm-uart";
     };
@@ -169,7 +173,6 @@
     ahb-prescaler = <1>;
     apb1-prescaler = <1>;
 };
-
 
 &rtc {
     status = "okay";

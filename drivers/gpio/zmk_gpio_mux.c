@@ -38,14 +38,11 @@ static int zgm_pin_config(const struct device *dev, gpio_pin_t pin, gpio_flags_t
         data->active_pin = pin;
         for (int i = 0; i < cfg->sel_gpios_len; i++) {
             bool val = (pin & BIT(i)) != 0;
-            // LOG_ERR("Setting pin %d to %s", i, (val ? "on" : "off"));
             gpio_pin_set_dt(&cfg->sel_gpios[i], val);
         }
 
-        // LOG_ERR("ZGM enable pin set true");
         ret = gpio_pin_set_dt(&cfg->en_gpio, true);
     } else {
-        // LOG_ERR("ZGM enable pin set off");
         ret = gpio_pin_set_dt(&cfg->en_gpio, false);
         if (ret < 0) {
             LOG_ERR("Failed to disable the en-gpio");
@@ -77,8 +74,6 @@ static const struct gpio_driver_api api_table = {
 static int zgm_init(const struct device *dev) {
     const struct zgm_config *cfg = dev->config;
 
-    LOG_ERR("ZGM INIT");
-
     if (cfg->en_gpio.port != NULL) {
         if (!device_is_ready(cfg->en_gpio.port)) {
             LOG_ERR("Enable port is not ready");
@@ -86,7 +81,6 @@ static int zgm_init(const struct device *dev) {
         }
 
         gpio_pin_configure_dt(&cfg->en_gpio, GPIO_OUTPUT_INACTIVE);
-        LOG_ERR("ZGM enable pin set off");
         gpio_pin_set_dt(&cfg->en_gpio, false);
     }
 

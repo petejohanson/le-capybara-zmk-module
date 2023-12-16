@@ -9,6 +9,11 @@ config ZMK_KSCAN_EC_MATRIX
 
 if ZMK_KSCAN_EC_MATRIX
 
+config ZMK_KSCAN_EC_MATRIX_SHELL
+	bool "EC Matrix Shell"
+	default y
+	depends on SHELL
+
 config ZMK_KSCAN_EC_MATRIX_THREAD_PRIORITY
 	int "Thread priority"
 	default -1
@@ -20,6 +25,10 @@ config ZMK_KSCAN_EC_MATRIX_THREAD_STACK_SIZE
 	default 1024
 	help
 	  Stack size of thread used by the driver to handle interrupts.
+
+config ZMK_KSCAN_EC_MATRIX_CALIBRATOR
+	bool "Build in the calibrator needed for initial setup of the matrix"
+	default y
 
 endif
 

@@ -6,14 +6,22 @@
 
 #define DT_DRV_COMPAT zmk_kscan_ec_matrix
 
+#include <zephyr/sys/util.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/kscan.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/adc.h>
 
+#include "zmk_kscan_ec_matrix.h"
+
 #define LOG_LEVEL CONFIG_KSCAN_LOG_LEVEL
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(zmk_kscan_ec_matrix);
+
+struct kscan_ec_matrix_calibration_entry {
+    uint16_t avg_high;
+    uint16_t avg_low;
+};
 
 struct kscan_ec_matrix_config
 {
@@ -39,6 +47,12 @@ struct kscan_ec_matrix_data
     struct k_thread thread;
     K_KERNEL_STACK_MEMBER(thread_stack, CONFIG_ZMK_KSCAN_EC_MATRIX_THREAD_STACK_SIZE);
     const struct device *dev;
+    struct k_mutex mutex;
+#if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_CALIBRATOR)
+    zmk_kscan_ec_matrix_calibration_cb_t calibration_callback;
+    const void *calibration_user_data;
+    bool calibrating;
+#endif // IS_DEFINED(CONFIG_ZMK_KSCAN_EC_MATRIX_CALIBRATOR)
     uint64_t matrix_state[];
 };
 
@@ -56,6 +70,7 @@ static int kscan_ec_matrix_configure(const struct device *dev, kscan_callback_t 
 static int kscan_ec_matrix_enable(const struct device *dev)
 {
     struct kscan_ec_matrix_data *data = dev->data;
+    LOG_ERR("ENABLE");
     k_thread_resume(&data->thread);
     return 0;
 }
@@ -106,6 +121,96 @@ static int16_t read_raw_matrix_state(const struct device *dev, uint8_t strobe, u
     gpio_pin_configure_dt(&cfg->inputs[input], GPIO_DISCONNECTED);
 
     return buf;
+}
+
+#define LOW_SAMPLES 20
+
+struct sample_results {
+    uint16_t min;
+    uint16_t max;
+    uint16_t avg;
+    uint16_t noise;
+};
+
+struct sample_results sample(const struct device *dev, int s, int i) {
+    uint16_t min, max, avg;
+
+    for (int sample = 0; sample < LOW_SAMPLES; sample++) {
+        uint16_t val = read_raw_matrix_state(dev, s, i);
+        LOG_DBG("Val: %d", val);
+
+        if (sample == 0) {
+            avg = min = max = val;
+        } else {
+            max = MAX(val, max);
+            min = MIN(val, min);
+            avg = ((avg * sample) + val) / (sample + 1);
+        }
+
+
+        k_sleep(K_MSEC(100));
+    }
+
+    return (struct sample_results) {
+        .min = min,
+        .max = max,
+        .avg = avg,
+        .noise = max - min,
+    };
+}
+
+void calibrate(const struct device *dev) {
+    const struct kscan_ec_matrix_config *cfg = dev->config;
+    const struct kscan_ec_matrix_data *data = dev->data;
+
+    for (int s = 0; s < cfg->strobes_len; s++) {
+        for (int i = 0; i < cfg->inputs_len; i++) {
+            struct sample_results low_res = sample(dev, s, i);
+
+            LOG_DBG("Low avg for %d,%d using %d and %d is %d. Noise %d", s, i, low_res.max, low_res.min, low_res.avg, low_res.noise);
+            if (data->calibration_callback) {
+                struct zmk_kscan_ec_matrix_calibration_event ev = { .type = CALIBRATION_EV_POSITION_LOW_DETERMINED, .data = { .position_low_determined = { .low_avg = low_res.avg, .strobe = s, .input = i, .noise = low_res.noise } } };
+                data->calibration_callback(&ev, data->calibration_user_data);
+            }            
+
+            while(read_raw_matrix_state(dev, s, i) < (low_res.avg * 2)) {
+                k_sleep(K_SECONDS(1));
+            }
+
+            k_sleep(K_MSEC(500));
+
+            struct sample_results high_res = sample(dev, s, i);
+        
+            uint16_t snr = (high_res.max - low_res.max) / low_res.noise;
+            LOG_DBG("High avg for %d,%d is %d. SNR %d", s, i, high_res.avg, snr);
+
+            if (data->calibration_callback) {
+                struct zmk_kscan_ec_matrix_calibration_event ev = { .type = CALIBRATION_EV_POSITION_COMPLETE, .data = { .position_complete = { .high_avg = high_res.avg, .snr = snr, .low_avg = low_res.avg, .strobe = s, .input = i, .noise = low_res.noise} } };
+                data->calibration_callback(&ev, data->calibration_user_data);
+            }
+
+            while(read_raw_matrix_state(dev, s, i) > (low_res.avg * 2)) {
+                k_sleep(K_MSEC(500));
+            }
+        }
+    }
+
+}
+int zmk_kscan_ec_matrix_calibrate(const struct device *dev, zmk_kscan_ec_matrix_calibration_cb_t callback, const void *user_data) {
+    struct kscan_ec_matrix_data *data = dev->data;
+
+    int ret = k_mutex_lock(&data->mutex, K_SECONDS(1));
+
+    if (ret < 0) {
+        return -EAGAIN;
+    }
+
+    data->calibration_callback = callback;
+    data->calibration_user_data = user_data;
+
+    k_mutex_unlock(&data->mutex);
+
+    return 0;
 }
 
 static void kscan_ec_matrix_read(const struct device *dev)
@@ -173,8 +278,15 @@ static void kscan_ec_matrix_thread_main(void *arg1, void *unused1, void *unused2
 	const struct device *dev = (const struct device *)arg1;
 	struct kscan_ec_matrix_data *data = dev->data;
 
+    LOG_ERR("");
 	while (1) {
-		kscan_ec_matrix_read(dev);
+        k_mutex_lock(&data->mutex, K_FOREVER);
+        if (data->calibration_callback) {
+            calibrate(dev);
+        } else {
+		    kscan_ec_matrix_read(dev);
+        }
+        k_mutex_unlock(&data->mutex);
         k_sleep(K_MSEC(data->poll_interval));
 	}
 }
@@ -185,6 +297,8 @@ static int kscan_ec_matrix_init(const struct device *dev)
     struct kscan_ec_matrix_data *data = dev->data;
     const struct kscan_ec_matrix_config *cfg = dev->config;
     data->dev = dev;
+
+    k_mutex_init(&data->mutex);
 
     if (!device_is_ready(cfg->adc_channel.dev)) {
         LOG_ERR("ADC Channel device is not ready");
@@ -262,10 +376,13 @@ static const struct kscan_driver_api kscan_ec_matrix_api = {
 
 #define ZERO(n, idx) 0
 
+#define ENTRIES(n) DT_INST_PROP_LEN(n, strobe_gpios) * DT_INST_PROP_LEN(n, input_gpios)
+
 #define ZKEM_INIT(n)                                                       \
     static struct kscan_ec_matrix_data kscan_ec_matrix_data##n = { \
         .matrix_state = { LISTIFY(DT_INST_PROP_LEN(n, strobe_gpios), ZERO, (,)) },\
     };                         \
+    static struct kscan_ec_matrix_calibration_entry calibration_entries_##n[ENTRIES(n)] = { 0 }; \
     static const struct gpio_dt_spec inputs_##n[] = {DT_FOREACH_PROP_ELEM(DT_DRV_INST(n), input_gpios, ZKEM_GPIO_DT_SPEC_ELEM)}; \
     static const struct kscan_ec_matrix_config kscan_ec_matrix_config##n = {            \
         .adc_channel = ADC_DT_SPEC_INST_GET(n), \
