@@ -19,8 +19,9 @@
 LOG_MODULE_REGISTER(zmk_kscan_ec_matrix);
 
 struct kscan_ec_matrix_calibration_entry {
-    uint16_t avg_high;
-    uint16_t avg_low;
+    int16_t avg_low;
+    int16_t avg_high;
+    int16_t noise;
 };
 
 struct kscan_ec_matrix_config
@@ -53,6 +54,7 @@ struct kscan_ec_matrix_data
     const void *calibration_user_data;
     bool calibrating;
 #endif // IS_DEFINED(CONFIG_ZMK_KSCAN_EC_MATRIX_CALIBRATOR)
+    struct kscan_ec_matrix_calibration_entry *calibrations;
     uint64_t matrix_state[];
 };
 
@@ -80,6 +82,13 @@ static int kscan_ec_matrix_disable(const struct device *dev)
     struct kscan_ec_matrix_data *data = dev->data;
     k_thread_suspend(&data->thread);
     return 0;
+}
+
+struct kscan_ec_matrix_calibration_entry *calibration_entry_for_strobe_input(const struct device *dev, uint8_t strobe, uint8_t input) {
+    struct kscan_ec_matrix_data *data = dev->data;
+    const struct kscan_ec_matrix_config *cfg = dev->config;
+
+    return &data->calibrations[(strobe * cfg->inputs_len) + input];
 }
 
 static int16_t read_raw_matrix_state(const struct device *dev, uint8_t strobe, uint8_t input) {
@@ -133,7 +142,7 @@ struct sample_results {
 };
 
 struct sample_results sample(const struct device *dev, int s, int i) {
-    uint16_t min, max, avg;
+    uint16_t min = 0, max = 0, avg = 0;
 
     for (int sample = 0; sample < LOW_SAMPLES; sample++) {
         uint16_t val = read_raw_matrix_state(dev, s, i);
@@ -147,7 +156,6 @@ struct sample_results sample(const struct device *dev, int s, int i) {
             avg = ((avg * sample) + val) / (sample + 1);
         }
 
-
         k_sleep(K_MSEC(100));
     }
 
@@ -157,6 +165,16 @@ struct sample_results sample(const struct device *dev, int s, int i) {
         .avg = avg,
         .noise = max - min,
     };
+}
+
+uint16_t normalize (uint16_t val, uint16_t avg_low, uint16_t avg_high) {
+    val = MAX(val, avg_low);
+    val = MIN(val, avg_high);
+
+    uint32_t numerator = UINT16_MAX * (val - avg_low);
+    uint16_t denominator = avg_high - avg_low;
+
+    return numerator / denominator;
 }
 
 void calibrate(const struct device *dev) {
@@ -189,6 +207,11 @@ void calibrate(const struct device *dev) {
                 data->calibration_callback(&ev, data->calibration_user_data);
             }
 
+            struct kscan_ec_matrix_calibration_entry *calibration = calibration_entry_for_strobe_input(dev, s, i);
+            calibration->avg_low = low_res.avg;
+            calibration->avg_high = high_res.avg;
+            calibration->noise = MAX(low_res.noise, high_res.noise);
+
             while(read_raw_matrix_state(dev, s, i) > (low_res.avg * 2)) {
                 k_sleep(K_MSEC(500));
             }
@@ -213,6 +236,7 @@ int zmk_kscan_ec_matrix_calibrate(const struct device *dev, zmk_kscan_ec_matrix_
     return 0;
 }
 
+
 static void kscan_ec_matrix_read(const struct device *dev)
 {
     const struct kscan_ec_matrix_config *cfg = dev->config;
@@ -236,13 +260,20 @@ static void kscan_ec_matrix_read(const struct device *dev)
             bool prev = (data->matrix_state[s] & BIT(r)) != 0;
             int16_t buf = read_raw_matrix_state(dev, s, r);
 
-            // TODO:
-            // 1. Normalize
-            // 2. Compare against press/release limits
-            // 3. Add to ire list if changed.
-            if (buf > 3800 && !prev) {
+            struct kscan_ec_matrix_calibration_entry *calibration = calibration_entry_for_strobe_input(dev, s, r);
+
+            uint16_t press_limit = 3800;
+            uint16_t release_limit = 3500;
+
+            if (calibration && calibration->avg_high != 0) {
+                buf = normalize(buf, calibration->avg_low, calibration->avg_high);
+                press_limit = calibration->avg_high - (calibration->avg_low / 2);
+                release_limit = press_limit - (calibration->noise * 3);
+            }
+
+            if (buf > press_limit && !prev) {
                 WRITE_BIT(rows[s], r, 1);
-            } else if (prev && buf < 3500) {
+            } else if (prev && buf < release_limit) {
                 WRITE_BIT(rows[s], r, 0);
             } else {
                 WRITE_BIT(rows[s], r, prev);
@@ -379,10 +410,11 @@ static const struct kscan_driver_api kscan_ec_matrix_api = {
 #define ENTRIES(n) DT_INST_PROP_LEN(n, strobe_gpios) * DT_INST_PROP_LEN(n, input_gpios)
 
 #define ZKEM_INIT(n)                                                       \
+    static struct kscan_ec_matrix_calibration_entry calibration_entries_##n[ENTRIES(n)] = { 0 }; \
     static struct kscan_ec_matrix_data kscan_ec_matrix_data##n = { \
+        .calibrations = calibration_entries_##n, \
         .matrix_state = { LISTIFY(DT_INST_PROP_LEN(n, strobe_gpios), ZERO, (,)) },\
     };                         \
-    static struct kscan_ec_matrix_calibration_entry calibration_entries_##n[ENTRIES(n)] = { 0 }; \
     static const struct gpio_dt_spec inputs_##n[] = {DT_FOREACH_PROP_ELEM(DT_DRV_INST(n), input_gpios, ZKEM_GPIO_DT_SPEC_ELEM)}; \
     static const struct kscan_ec_matrix_config kscan_ec_matrix_config##n = {            \
         .adc_channel = ADC_DT_SPEC_INST_GET(n), \
