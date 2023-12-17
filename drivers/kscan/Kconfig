@@ -22,7 +22,7 @@ config ZMK_KSCAN_EC_MATRIX_THREAD_PRIORITY
 
 config ZMK_KSCAN_EC_MATRIX_THREAD_STACK_SIZE
 	int "Thread stack size"
-	default 1024
+	default 768
 	help
 	  Stack size of thread used by the driver to handle interrupts.
 
