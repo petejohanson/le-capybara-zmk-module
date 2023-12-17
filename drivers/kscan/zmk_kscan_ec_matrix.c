@@ -19,9 +19,9 @@
 LOG_MODULE_REGISTER(zmk_kscan_ec_matrix);
 
 struct kscan_ec_matrix_calibration_entry {
-    int16_t avg_low;
-    int16_t avg_high;
-    int16_t noise;
+    uint16_t avg_low;
+    uint16_t avg_high;
+    uint16_t noise;
 };
 
 struct kscan_ec_matrix_config
@@ -38,6 +38,7 @@ struct kscan_ec_matrix_config
     const uint16_t idle_polling_interval_ms;
     const uint16_t sleep_polling_interval_ms;
     const struct gpio_dt_spec *inputs;
+    const uint32_t *strobe_input_masks;
     const struct gpio_dt_spec strobes[];
 };
 
@@ -72,7 +73,6 @@ static int kscan_ec_matrix_configure(const struct device *dev, kscan_callback_t 
 static int kscan_ec_matrix_enable(const struct device *dev)
 {
     struct kscan_ec_matrix_data *data = dev->data;
-    LOG_ERR("ENABLE");
     k_thread_resume(&data->thread);
     return 0;
 }
@@ -91,7 +91,7 @@ struct kscan_ec_matrix_calibration_entry *calibration_entry_for_strobe_input(con
     return &data->calibrations[(strobe * cfg->inputs_len) + input];
 }
 
-static int16_t read_raw_matrix_state(const struct device *dev, uint8_t strobe, uint8_t input) {
+static uint16_t read_raw_matrix_state(const struct device *dev, uint8_t strobe, uint8_t input) {
     const struct kscan_ec_matrix_config *cfg = dev->config;
 
     int16_t buf;
@@ -132,7 +132,7 @@ static int16_t read_raw_matrix_state(const struct device *dev, uint8_t strobe, u
     return buf;
 }
 
-#define LOW_SAMPLES 20
+#define SAMPLE_COUNT 10
 
 struct sample_results {
     uint16_t min;
@@ -144,7 +144,7 @@ struct sample_results {
 struct sample_results sample(const struct device *dev, int s, int i) {
     uint16_t min = 0, max = 0, avg = 0;
 
-    for (int sample = 0; sample < LOW_SAMPLES; sample++) {
+    for (int sample = 0; sample < SAMPLE_COUNT; sample++) {
         uint16_t val = read_raw_matrix_state(dev, s, i);
         LOG_DBG("Val: %d", val);
 
@@ -174,15 +174,19 @@ uint16_t normalize (uint16_t val, uint16_t avg_low, uint16_t avg_high) {
     uint32_t numerator = UINT16_MAX * (val - avg_low);
     uint16_t denominator = avg_high - avg_low;
 
-    return numerator / denominator;
+    return (uint16_t) (numerator / denominator);
 }
 
 void calibrate(const struct device *dev) {
     const struct kscan_ec_matrix_config *cfg = dev->config;
-    const struct kscan_ec_matrix_data *data = dev->data;
+    struct kscan_ec_matrix_data *data = dev->data;
 
     for (int s = 0; s < cfg->strobes_len; s++) {
         for (int i = 0; i < cfg->inputs_len; i++) {
+            if (cfg->strobe_input_masks && (cfg->strobe_input_masks[s] & BIT(i)) != 0) {
+                continue;
+            }
+
             struct sample_results low_res = sample(dev, s, i);
 
             LOG_DBG("Low avg for %d,%d using %d and %d is %d. Noise %d", s, i, low_res.max, low_res.min, low_res.avg, low_res.noise);
@@ -218,7 +222,15 @@ void calibrate(const struct device *dev) {
         }
     }
 
+    if (data->calibration_callback) {
+        struct zmk_kscan_ec_matrix_calibration_event ev = { .type = CALIBRATION_EV_COMPLETE, };
+        data->calibration_callback(&ev, data->calibration_user_data);
+    }
+
+    data->calibration_callback = NULL;
+    data->calibration_user_data = NULL;
 }
+
 int zmk_kscan_ec_matrix_calibrate(const struct device *dev, zmk_kscan_ec_matrix_calibration_cb_t callback, const void *user_data) {
     struct kscan_ec_matrix_data *data = dev->data;
 
@@ -257,8 +269,12 @@ static void kscan_ec_matrix_read(const struct device *dev)
     for (int r = 0; r < cfg->inputs_len; r++) {
         for (int s = 0; s < cfg->strobes_len; s++) {
 
+            if (cfg->strobe_input_masks && (cfg->strobe_input_masks[s] & BIT(r)) != 0) {
+                continue;
+            }
+
             bool prev = (data->matrix_state[s] & BIT(r)) != 0;
-            int16_t buf = read_raw_matrix_state(dev, s, r);
+            uint16_t buf = read_raw_matrix_state(dev, s, r);
 
             struct kscan_ec_matrix_calibration_entry *calibration = calibration_entry_for_strobe_input(dev, s, r);
 
@@ -267,8 +283,9 @@ static void kscan_ec_matrix_read(const struct device *dev)
 
             if (calibration && calibration->avg_high != 0) {
                 buf = normalize(buf, calibration->avg_low, calibration->avg_high);
-                press_limit = calibration->avg_high - (calibration->avg_low / 2);
-                release_limit = press_limit - (calibration->noise * 3);
+
+                press_limit = normalize(calibration->avg_high - (calibration->avg_low / 2), calibration->avg_low, calibration->avg_high);
+                release_limit = normalize(calibration->avg_high - (calibration->avg_low / 2) - (calibration->noise * 4), calibration->avg_low, calibration->avg_high);
             }
 
             if (buf > press_limit && !prev) {
@@ -309,7 +326,6 @@ static void kscan_ec_matrix_thread_main(void *arg1, void *unused1, void *unused2
 	const struct device *dev = (const struct device *)arg1;
 	struct kscan_ec_matrix_data *data = dev->data;
 
-    LOG_ERR("");
 	while (1) {
         k_mutex_lock(&data->mutex, K_FOREVER);
         if (data->calibration_callback) {
@@ -411,6 +427,7 @@ static const struct kscan_driver_api kscan_ec_matrix_api = {
 
 #define ZKEM_INIT(n)                                                       \
     static struct kscan_ec_matrix_calibration_entry calibration_entries_##n[ENTRIES(n)] = { 0 }; \
+    COND_CODE_1(DT_INST_NODE_HAS_PROP(n, strobe_input_masks), (static const uint32_t strobe_input_masks_##n[] = DT_INST_PROP(n, strobe_input_masks);), ( )) \
     static struct kscan_ec_matrix_data kscan_ec_matrix_data##n = { \
         .calibrations = calibration_entries_##n, \
         .matrix_state = { LISTIFY(DT_INST_PROP_LEN(n, strobe_gpios), ZERO, (,)) },\
@@ -424,6 +441,7 @@ static const struct kscan_driver_api kscan_ec_matrix_api = {
         .strobes_len = DT_INST_PROP_LEN(n, strobe_gpios), \
         .inputs = inputs_##n, \
         .inputs_len = DT_INST_PROP_LEN(n, input_gpios), \
+        COND_CODE_1(DT_INST_NODE_HAS_PROP(n, strobe_input_masks), (.strobe_input_masks = strobe_input_masks_##n,), ( )) \
         .matrix_warm_up_ms = DT_INST_PROP_OR(n, matrix_warm_up_ms, 0),                        \
         .matrix_relax_us = DT_INST_PROP_OR(n, matrix_relax_us, 0),                            \
         .adc_read_settle_us = DT_INST_PROP_OR(n, adc_read_settle_us, 0),                      \

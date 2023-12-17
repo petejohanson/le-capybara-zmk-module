@@ -31,6 +31,9 @@ properties:
   strobe-gpios:
     type: phandle-array
     required: true
+  strobe-input-masks:
+    type: array
+    description: Array of masked inputs for each strobe line. Those set bits are indexes of inputs to skip for each strobe line.
   drain-gpios:
     type: phandle-array
   io-channels:

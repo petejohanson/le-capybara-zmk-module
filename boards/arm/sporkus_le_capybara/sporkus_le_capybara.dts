@@ -8,6 +8,7 @@
 #include <st/f0/stm32f072Xb.dtsi>
 #include <st/f0/stm32f072v(8-b)tx-pinctrl.dtsi>
 
+#include <zephyr/dt-bindings/dt-util.h>
 #include <zephyr/dt-bindings/adc/adc.h>
 
 #include <dt-bindings/zmk/matrix_transform.h>
@@ -117,6 +118,8 @@
 
         io-channels = <&adc1 2>;
         matrix-relax-us = <150>;
+
+        strobe-input-masks = <0 0 0 (BIT(0) + BIT(2) + BIT(4) + BIT(5) + BIT(7) + BIT(9))>;
 
         drain-gpios = <&gpioa 1 GPIO_OPEN_DRAIN>;
     };

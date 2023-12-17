@@ -48,8 +48,8 @@ static struct matrix_hdl *get_matrix(const char *device_label)
 	return NULL;
 }
 
-static void calibrate_cb(const struct zmk_kscan_ec_matrix_calibration_event *ev, void *user_data) {
-    const struct shell *sh = (struct shell*)user_data;
+static void calibrate_cb(const struct zmk_kscan_ec_matrix_calibration_event *ev, const void *user_data) {
+    const struct shell *sh = (const struct shell*)user_data;
 
     switch (ev->type) {
         case CALIBRATION_EV_POSITION_LOW_DETERMINED:
@@ -61,6 +61,9 @@ static void calibrate_cb(const struct zmk_kscan_ec_matrix_calibration_event *ev,
                 ev->data.position_complete.low_avg, ev->data.position_complete.high_avg,
                 ev->data.position_complete.noise, ev->data.position_complete.snr);
             break;
+		case CALIBRATION_EV_COMPLETE:
+			shell_print(sh, "Calibration complete, try it out!");
+			break;
     }
 }
 
@@ -71,8 +74,11 @@ static int cmd_matrix_calibrate(const struct shell *shell, size_t argc, char **a
 	struct matrix_hdl *matrix = get_matrix(argv[-1]);
 
     int ret = zmk_kscan_ec_matrix_calibrate(matrix->dev, &calibrate_cb, shell);
+	if (ret < 0) {
+		shell_print(shell, "Failed to start calibration (%d)", ret);
+	}
 
-    return 0;
+    return ret;
 }
 
 
