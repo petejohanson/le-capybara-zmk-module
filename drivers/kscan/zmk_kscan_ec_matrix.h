@@ -33,6 +33,15 @@ struct zmk_kscan_ec_matrix_calibration_event {
     } data;
 };
 
+struct zmk_kscan_ec_matrix_calibration_entry {
+    uint16_t avg_low;
+    uint16_t avg_high;
+    uint16_t noise;
+};
+
 typedef void (*zmk_kscan_ec_matrix_calibration_cb_t)(const struct zmk_kscan_ec_matrix_calibration_event *ev, const void *);
+typedef void (*zmk_kscan_ec_matrix_calibration_access_cb_t)(const struct device *dev, struct zmk_kscan_ec_matrix_calibration_entry *entries, size_t len, const void *user_data);
 
 int zmk_kscan_ec_matrix_calibrate(const struct device *dev, zmk_kscan_ec_matrix_calibration_cb_t cb, const void *user_data);
+
+int zmk_kscan_ec_matrix_access_calibration(const struct device *dev, zmk_kscan_ec_matrix_calibration_access_cb_t cb, const void *user_data);

@@ -5,7 +5,7 @@ description: GPIO keyboard demux controller
 
 compatible: "zmk,kscan-ec-matrix"
 
-include: kscan.yaml
+include: [kscan.yaml, pinctrl-device.yaml]
 
 properties:
   active-polling-interval-ms:
@@ -38,3 +38,9 @@ properties:
     type: phandle-array
   io-channels:
     required: true
+  
+  pinctrl-0:
+    required: false
+
+  pinctrl-names:
+    required: false

@@ -31,6 +31,32 @@
 	};
 };
 
+&pinctrl {
+    ec_pin1: ec_pin1 {
+        pinmux = <STM32_PINMUX('A', 3, GPIO)>;
+
+        slew-rate = "very-high-speed";
+    };
+
+    ec_pin2: ec_pin2 {
+        pinmux = <STM32_PINMUX('A', 5, GPIO)>;
+
+        slew-rate = "very-high-speed";
+    };
+
+    ec_pin3: ec_pin3 {
+        pinmux = <STM32_PINMUX('A', 7, GPIO)>;
+
+        slew-rate = "very-high-speed";
+    };
+
+    ec_pin4: ec_pin4 {
+        pinmux = <STM32_PINMUX('B', 1, GPIO)>;
+
+        slew-rate = "very-high-speed";
+    };
+};
+
 / {
     model = "Le Capybara";
     compatible = "sporkus,le_capybara", "st,stm32f072";
@@ -40,7 +66,7 @@
         zephyr,flash = &flash0;
         zephyr,console = &cdc_acm_uart;
         zephyr,shell-uart = &cdc_acm_uart;
-        zmk,kscan = &kscan;
+        zmk,kscan = &matrix;
         zmk,matrix_transform = &transform;
         zephyr,display = &oled;
         /* TODO: Enable once we support the IC for underglow
@@ -93,7 +119,10 @@
         #gpio-cells = <2>;
     };
 
-    kscan: kscan {
+    matrix: matrix {
+        pinctrl-0 = <&ec_pin1 &ec_pin2 &ec_pin3 &ec_pin4>;
+        pinctrl-names = "default";
+
         compatible = "zmk,kscan-ec-matrix";
 
         input-gpios
@@ -118,6 +147,8 @@
 
         io-channels = <&adc1 2>;
         matrix-relax-us = <150>;
+
+        adc-read-settle-us = <5>;
 
         strobe-input-masks = <0 0 0 (BIT(0) + BIT(2) + BIT(4) + BIT(5) + BIT(7) + BIT(9))>;
 
@@ -192,9 +223,9 @@
         #size-cells = <1>;
 
         /* Set 6Kb of storage at the end of the 128Kb of flash */
-        storage_partition: partition@3e800 {
+        storage_partition: partition@1e800 {
             label = "storage";
-            reg = <0x0001e800 0x00001800>;
+            reg = <0x0001e800 DT_SIZE_K(6)>;
         };
     };
 };

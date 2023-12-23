@@ -14,6 +14,11 @@ config ZMK_KSCAN_EC_MATRIX_SHELL
 	default y
 	depends on SHELL
 
+config ZMK_KSCAN_EC_MATRIX_SETTINGS
+	bool "EC Matrix Settings Storage"
+	default y
+	depends on SETTINGS
+
 config ZMK_KSCAN_EC_MATRIX_THREAD_PRIORITY
 	int "Thread priority"
 	default -1

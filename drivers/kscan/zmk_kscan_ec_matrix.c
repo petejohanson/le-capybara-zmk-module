@@ -8,6 +8,7 @@
 
 #include <zephyr/sys/util.h>
 #include <zephyr/device.h>
+#include <zephyr/drivers/pinctrl.h>
 #include <zephyr/drivers/kscan.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/adc.h>
@@ -18,14 +19,9 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(zmk_kscan_ec_matrix);
 
-struct kscan_ec_matrix_calibration_entry {
-    uint16_t avg_low;
-    uint16_t avg_high;
-    uint16_t noise;
-};
-
 struct kscan_ec_matrix_config
 {
+    const struct pinctrl_dev_config *pcfg;
     struct gpio_dt_spec power;
     struct gpio_dt_spec drain;
     const struct adc_dt_spec adc_channel;
@@ -55,7 +51,7 @@ struct kscan_ec_matrix_data
     const void *calibration_user_data;
     bool calibrating;
 #endif // IS_DEFINED(CONFIG_ZMK_KSCAN_EC_MATRIX_CALIBRATOR)
-    struct kscan_ec_matrix_calibration_entry *calibrations;
+    struct zmk_kscan_ec_matrix_calibration_entry *calibrations;
     uint64_t matrix_state[];
 };
 
@@ -84,7 +80,7 @@ static int kscan_ec_matrix_disable(const struct device *dev)
     return 0;
 }
 
-struct kscan_ec_matrix_calibration_entry *calibration_entry_for_strobe_input(const struct device *dev, uint8_t strobe, uint8_t input) {
+struct zmk_kscan_ec_matrix_calibration_entry *calibration_entry_for_strobe_input(const struct device *dev, uint8_t strobe, uint8_t input) {
     struct kscan_ec_matrix_data *data = dev->data;
     const struct kscan_ec_matrix_config *cfg = dev->config;
 
@@ -114,6 +110,7 @@ static uint16_t read_raw_matrix_state(const struct device *dev, uint8_t strobe, 
     const uint32_t lock = irq_lock();
 
     gpio_pin_set_dt(&cfg->strobes[strobe], 1);
+    k_busy_wait(cfg->adc_read_settle_us);
     int ret = adc_read(cfg->adc_channel.dev, &sequence);
     if (ret < 0) {
         LOG_ERR("ADC READ ERROR %d", ret);
@@ -211,7 +208,7 @@ void calibrate(const struct device *dev) {
                 data->calibration_callback(&ev, data->calibration_user_data);
             }
 
-            struct kscan_ec_matrix_calibration_entry *calibration = calibration_entry_for_strobe_input(dev, s, i);
+            struct zmk_kscan_ec_matrix_calibration_entry *calibration = calibration_entry_for_strobe_input(dev, s, i);
             calibration->avg_low = low_res.avg;
             calibration->avg_high = high_res.avg;
             calibration->noise = MAX(low_res.noise, high_res.noise);
@@ -248,6 +245,23 @@ int zmk_kscan_ec_matrix_calibrate(const struct device *dev, zmk_kscan_ec_matrix_
     return 0;
 }
 
+int zmk_kscan_ec_matrix_access_calibration(const struct device *dev, zmk_kscan_ec_matrix_calibration_access_cb_t cb, const void *user_data) {
+    const struct kscan_ec_matrix_config *cfg = dev->config;
+    struct kscan_ec_matrix_data *data = dev->data;
+
+    int ret = k_mutex_lock(&data->mutex, K_SECONDS(1));
+
+    if (ret < 0) {
+        return -EAGAIN;
+    }
+
+    cb(dev, data->calibrations, cfg->inputs_len * cfg->strobes_len, user_data);
+
+    k_mutex_unlock(&data->mutex);
+
+    return 0;
+}
+
 
 static void kscan_ec_matrix_read(const struct device *dev)
 {
@@ -276,7 +290,7 @@ static void kscan_ec_matrix_read(const struct device *dev)
             bool prev = (data->matrix_state[s] & BIT(r)) != 0;
             uint16_t buf = read_raw_matrix_state(dev, s, r);
 
-            struct kscan_ec_matrix_calibration_entry *calibration = calibration_entry_for_strobe_input(dev, s, r);
+            struct zmk_kscan_ec_matrix_calibration_entry *calibration = calibration_entry_for_strobe_input(dev, s, r);
 
             uint16_t press_limit = 3800;
             uint16_t release_limit = 3500;
@@ -284,8 +298,11 @@ static void kscan_ec_matrix_read(const struct device *dev)
             if (calibration && calibration->avg_high != 0) {
                 buf = normalize(buf, calibration->avg_low, calibration->avg_high);
 
-                press_limit = normalize(calibration->avg_high - (calibration->avg_low / 2), calibration->avg_low, calibration->avg_high);
-                release_limit = normalize(calibration->avg_high - (calibration->avg_low / 2) - (calibration->noise * 4), calibration->avg_low, calibration->avg_high);
+                uint16_t range = calibration->avg_high - calibration->avg_low;
+                uint16_t press_limit_raw = calibration->avg_high - (range / 5);
+                uint16_t hys_buffer = calibration->noise * 3;
+                press_limit = normalize(press_limit_raw, calibration->avg_low, calibration->avg_high);
+                release_limit = normalize(press_limit_raw - hys_buffer, calibration->avg_low, calibration->avg_high);
             }
 
             if (buf > press_limit && !prev) {
@@ -358,6 +375,11 @@ static int kscan_ec_matrix_init(const struct device *dev)
         return err;
     }
 
+    err = pinctrl_apply_state(cfg->pcfg, PINCTRL_STATE_DEFAULT);
+	if (err < 0) {
+		return err;
+	}
+
     if (cfg->power.port != NULL) {
         if (!device_is_ready(cfg->power.port)) {
             LOG_ERR("Power port is not ready");
@@ -426,7 +448,8 @@ static const struct kscan_driver_api kscan_ec_matrix_api = {
 #define ENTRIES(n) DT_INST_PROP_LEN(n, strobe_gpios) * DT_INST_PROP_LEN(n, input_gpios)
 
 #define ZKEM_INIT(n)                                                       \
-    static struct kscan_ec_matrix_calibration_entry calibration_entries_##n[ENTRIES(n)] = { 0 }; \
+    PINCTRL_DT_INST_DEFINE(n);						\
+    static struct zmk_kscan_ec_matrix_calibration_entry calibration_entries_##n[ENTRIES(n)] = { 0 }; \
     COND_CODE_1(DT_INST_NODE_HAS_PROP(n, strobe_input_masks), (static const uint32_t strobe_input_masks_##n[] = DT_INST_PROP(n, strobe_input_masks);), ( )) \
     static struct kscan_ec_matrix_data kscan_ec_matrix_data##n = { \
         .calibrations = calibration_entries_##n, \
@@ -434,6 +457,7 @@ static const struct kscan_driver_api kscan_ec_matrix_api = {
     };                         \
     static const struct gpio_dt_spec inputs_##n[] = {DT_FOREACH_PROP_ELEM(DT_DRV_INST(n), input_gpios, ZKEM_GPIO_DT_SPEC_ELEM)}; \
     static const struct kscan_ec_matrix_config kscan_ec_matrix_config##n = {            \
+        .pcfg = PINCTRL_DT_INST_DEV_CONFIG_GET(n),			\
         .adc_channel = ADC_DT_SPEC_INST_GET(n), \
         .power = GPIO_DT_SPEC_INST_GET_OR(n, power_gpios, {0}), \
         .drain = GPIO_DT_SPEC_INST_GET_OR(n, drain_gpios, {0}), \

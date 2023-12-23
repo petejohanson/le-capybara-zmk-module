@@ -12,6 +12,7 @@
 #include <zephyr/device.h>
 
 #include "zmk_kscan_ec_matrix.h"
+#include "ec_matrix_settings.h"
 
 #define DT_DRV_COMPAT zmk_kscan_ec_matrix
 
@@ -19,8 +20,17 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(ec_matrix_shell);
 
-#define CMD_HELP_CALIBRATE 			\
+#define CMD_HELP_CALIBRATE \
+	"EC Calibration Utilities.\n"
+#define CMD_HELP_CALIBRATION_START 			\
 	"Calibrate the EC Martix.\n"
+
+#define CMD_HELP_CALIBRATION_SAVE 			\
+	"Save the EC Martix Calibration To Flash.\n"
+
+
+#define CMD_HELP_CALIBRATION_LOAD 			\
+	"Load the EC Martix Calibration From Flash.\n"
 
 #define DEVICES(n) DEVICE_DT_INST_GET(n),
 
@@ -67,11 +77,11 @@ static void calibrate_cb(const struct zmk_kscan_ec_matrix_calibration_event *ev,
     }
 }
 
-static int cmd_matrix_calibrate(const struct shell *shell, size_t argc, char **argv,
+static int cmd_matrix_calibration_start(const struct shell *shell, size_t argc, char **argv,
 			void *data)
 {
 	/* -2: index of ADC label name */
-	struct matrix_hdl *matrix = get_matrix(argv[-1]);
+	struct matrix_hdl *matrix = get_matrix(argv[-2]);
 
     int ret = zmk_kscan_ec_matrix_calibrate(matrix->dev, &calibrate_cb, shell);
 	if (ret < 0) {
@@ -81,31 +91,48 @@ static int cmd_matrix_calibrate(const struct shell *shell, size_t argc, char **a
     return ret;
 }
 
+#if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_SETTINGS)
 
-// static int cmd_adc_print(const struct shell *shell, size_t argc, char **argv)
-// {
-// 	/* -1 index of ADC label name */
-// 	struct adc_hdl *adc = get_adc(argv[-1]);
 
-// 	shell_print(shell, "%s:\n"
-// 			   "Gain: %s\n"
-// 			   "Reference: %s\n"
-// 			   "Acquisition Time: %u\n"
-// 			   "Channel ID: %u\n"
-// 			   "Resolution: %u",
-// 			   adc->dev->name,
-// 			   chosen_gain,
-// 			   chosen_reference,
-// 			   adc->channel_config.acquisition_time,
-// 			   adc->channel_config.channel_id,
-// 			   adc->resolution);
-// 	return 0;
-// }
+static int cmd_matrix_calibration_save(const struct shell *shell, size_t argc, char **argv,
+			void *data)
+{
+	struct matrix_hdl *matrix = get_matrix(argv[-2]);
+	int ret = zmk_kscan_ec_matrix_settings_save_calibration(matrix->dev);
+	if (ret < 0) {
+		shell_print(shell, "Failed to initiate save calibration (%d)", ret);
+	}
 
+    return ret;
+}
+
+static int cmd_matrix_calibration_load(const struct shell *shell, size_t argc, char **argv,
+			void *data)
+{
+	struct matrix_hdl *matrix = get_matrix(argv[-2]);
+	int ret = zmk_kscan_ec_matrix_settings_load_calibration(matrix->dev);
+	if (ret < 0) {
+		shell_print(shell, "Failed to initiate save calibration (%d)", ret);
+	}
+
+    return ret;
+}
+
+#endif // IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_SETTINGS)
+
+SHELL_STATIC_SUBCMD_SET_CREATE(sub_matrix_calibration_cmds,
+	/* Alphabetically sorted. */
+	SHELL_CMD(start, NULL, CMD_HELP_CALIBRATION_START, cmd_matrix_calibration_start),
+#if IS_ENABLED(CONFIG_SETTINGS)
+	SHELL_CMD(save, NULL, CMD_HELP_CALIBRATION_SAVE, cmd_matrix_calibration_save),
+	SHELL_CMD(load, NULL, CMD_HELP_CALIBRATION_LOAD, cmd_matrix_calibration_load),
+#endif // IS_ENABLED(CONFIG_SETTINGS)
+	SHELL_SUBCMD_SET_END /* Array terminated. */
+);
 
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_matrix_cmds,
 	/* Alphabetically sorted. */
-	SHELL_CMD_ARG(calibrate, NULL, CMD_HELP_CALIBRATE, cmd_matrix_calibrate, 1, 0),
+	SHELL_CMD(calibration, &sub_matrix_calibration_cmds, CMD_HELP_CALIBRATE, NULL),
 	SHELL_SUBCMD_SET_END /* Array terminated. */
 );
 
@@ -123,4 +150,4 @@ static void cmd_matrix_dev_get(size_t idx, struct shell_static_entry *entry)
 }
 SHELL_DYNAMIC_CMD_CREATE(sub_ec_matrix_dev, cmd_matrix_dev_get);
 
-SHELL_CMD_REGISTER(ec_matrix, &sub_ec_matrix_dev, "EC Matrix commands", NULL);
+SHELL_CMD_REGISTER(ec, &sub_ec_matrix_dev, "EC Matrix commands", NULL);
