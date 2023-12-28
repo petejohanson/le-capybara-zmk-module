@@ -19,6 +19,11 @@ config ZMK_KSCAN_EC_MATRIX_SETTINGS
 	default y
 	depends on SETTINGS
 
+config ZMK_KSCAN_EC_MATRIX_SETTINGS_INIT_LOAD
+	bool "EC Matrix Settings auto load on start"
+	default y
+	depends on ZMK_KSCAN_EC_MATRIX_SETTINGS
+
 config ZMK_KSCAN_EC_MATRIX_THREAD_PRIORITY
 	int "Thread priority"
 	default -1
