@@ -192,7 +192,7 @@ void calibrate(const struct device *dev) {
                 data->calibration_callback(&ev, data->calibration_user_data);
             }            
 
-            while(read_raw_matrix_state(dev, s, i) < (low_res.avg * 2)) {
+            while(read_raw_matrix_state(dev, s, i) < (low_res.avg + (low_res.noise/2))) {
                 k_sleep(K_SECONDS(1));
             }
 
@@ -282,6 +282,11 @@ static void kscan_ec_matrix_read(const struct device *dev)
 
     for (int r = 0; r < cfg->inputs_len; r++) {
         for (int s = 0; s < cfg->strobes_len; s++) {
+            struct zmk_kscan_ec_matrix_calibration_entry *calibration = calibration_entry_for_strobe_input(dev, s, r);
+
+            if (!calibration || calibration->avg_high == 0) {
+                continue;
+            }
 
             if (cfg->strobe_input_masks && (cfg->strobe_input_masks[s] & BIT(r)) != 0) {
                 continue;
@@ -290,20 +295,13 @@ static void kscan_ec_matrix_read(const struct device *dev)
             bool prev = (data->matrix_state[s] & BIT(r)) != 0;
             uint16_t buf = read_raw_matrix_state(dev, s, r);
 
-            struct zmk_kscan_ec_matrix_calibration_entry *calibration = calibration_entry_for_strobe_input(dev, s, r);
+            buf = normalize(buf, calibration->avg_low, calibration->avg_high);
 
-            uint16_t press_limit = 3800;
-            uint16_t release_limit = 3500;
-
-            if (calibration && calibration->avg_high != 0) {
-                buf = normalize(buf, calibration->avg_low, calibration->avg_high);
-
-                uint16_t range = calibration->avg_high - calibration->avg_low;
-                uint16_t press_limit_raw = calibration->avg_high - (range / 5);
-                uint16_t hys_buffer = calibration->noise * 3;
-                press_limit = normalize(press_limit_raw, calibration->avg_low, calibration->avg_high);
-                release_limit = normalize(press_limit_raw - hys_buffer, calibration->avg_low, calibration->avg_high);
-            }
+            uint16_t range = calibration->avg_high - calibration->avg_low;
+            uint16_t press_limit_raw = calibration->avg_high - (range / 5);
+            uint16_t hys_buffer = calibration->noise * 3;
+            uint16_t press_limit = normalize(press_limit_raw, calibration->avg_low, calibration->avg_high);
+            uint16_t release_limit = normalize(press_limit_raw - hys_buffer, calibration->avg_low, calibration->avg_high);
 
             if (buf > press_limit && !prev) {
                 WRITE_BIT(rows[s], r, 1);
