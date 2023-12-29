@@ -146,7 +146,7 @@
             ;
 
         io-channels = <&adc1 2>;
-        matrix-relax-us = <7>;
+        matrix-relax-us = <1>;
 
         // adc-read-settle-us = <5>;
 
