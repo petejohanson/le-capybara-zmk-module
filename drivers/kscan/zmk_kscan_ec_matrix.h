@@ -3,6 +3,8 @@
 
 struct zmk_kscan_ec_matrix_calibration_event {
     enum zmk_kscan_ec_matrix_calibration_event_type {
+        CALIBRATION_EV_LOW_SAMPLING_START,
+        CALIBRATION_EV_HIGH_SAMPLING_START,
         CALIBRATION_EV_POSITION_LOW_DETERMINED,
         CALIBRATION_EV_POSITION_COMPLETE,
         CALIBRATION_EV_COMPLETE,
@@ -45,3 +47,9 @@ typedef void (*zmk_kscan_ec_matrix_calibration_access_cb_t)(const struct device 
 int zmk_kscan_ec_matrix_calibrate(const struct device *dev, zmk_kscan_ec_matrix_calibration_cb_t cb, const void *user_data);
 
 int zmk_kscan_ec_matrix_access_calibration(const struct device *dev, zmk_kscan_ec_matrix_calibration_access_cb_t cb, const void *user_data);
+
+#if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_SCAN_RATE_CALC)
+
+uint64_t zmk_kscan_ec_matrix_max_scan_duration_ns(const struct device *dev);
+
+#endif // IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_SCAN_RATE_CALC)

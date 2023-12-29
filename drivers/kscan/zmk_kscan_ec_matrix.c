@@ -6,12 +6,12 @@
 
 #define DT_DRV_COMPAT zmk_kscan_ec_matrix
 
-#include <zephyr/sys/util.h>
 #include <zephyr/device.h>
-#include <zephyr/drivers/pinctrl.h>
-#include <zephyr/drivers/kscan.h>
-#include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/adc.h>
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/kscan.h>
+#include <zephyr/drivers/pinctrl.h>
+#include <zephyr/sys/util.h>
 
 #include "zmk_kscan_ec_matrix.h"
 
@@ -19,8 +19,11 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(zmk_kscan_ec_matrix);
 
-struct kscan_ec_matrix_config
-{
+#if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_SCAN_RATE_CALC)
+#include <zephyr/timing/timing.h>
+#endif
+
+struct kscan_ec_matrix_config {
     const struct pinctrl_dev_config *pcfg;
     struct gpio_dt_spec power;
     struct gpio_dt_spec drain;
@@ -38,8 +41,7 @@ struct kscan_ec_matrix_config
     const struct gpio_dt_spec strobes[];
 };
 
-struct kscan_ec_matrix_data
-{
+struct kscan_ec_matrix_data {
     kscan_callback_t callback;
     uint16_t poll_interval;
     struct k_thread thread;
@@ -49,38 +51,37 @@ struct kscan_ec_matrix_data
 #if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_CALIBRATOR)
     zmk_kscan_ec_matrix_calibration_cb_t calibration_callback;
     const void *calibration_user_data;
-    bool calibrating;
 #endif // IS_DEFINED(CONFIG_ZMK_KSCAN_EC_MATRIX_CALIBRATOR)
+#if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_SCAN_RATE_CALC)
+    uint64_t max_scan_duration_ns;
+#endif // IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_SCAN_RATE_CALC)
     struct zmk_kscan_ec_matrix_calibration_entry *calibrations;
     uint64_t matrix_state[];
 };
 
-static int kscan_ec_matrix_configure(const struct device *dev, kscan_callback_t callback)
-{
+static int kscan_ec_matrix_configure(const struct device *dev, kscan_callback_t callback) {
     struct kscan_ec_matrix_data *data = dev->data;
-    if (!callback)
-    {
+    if (!callback) {
         return -EINVAL;
     }
     data->callback = callback;
     return 0;
 }
 
-static int kscan_ec_matrix_enable(const struct device *dev)
-{
+static int kscan_ec_matrix_enable(const struct device *dev) {
     struct kscan_ec_matrix_data *data = dev->data;
     k_thread_resume(&data->thread);
     return 0;
 }
 
-static int kscan_ec_matrix_disable(const struct device *dev)
-{
+static int kscan_ec_matrix_disable(const struct device *dev) {
     struct kscan_ec_matrix_data *data = dev->data;
     k_thread_suspend(&data->thread);
     return 0;
 }
 
-struct zmk_kscan_ec_matrix_calibration_entry *calibration_entry_for_strobe_input(const struct device *dev, uint8_t strobe, uint8_t input) {
+struct zmk_kscan_ec_matrix_calibration_entry *
+calibration_entry_for_strobe_input(const struct device *dev, uint8_t strobe, uint8_t input) {
     struct kscan_ec_matrix_data *data = dev->data;
     const struct kscan_ec_matrix_config *cfg = dev->config;
 
@@ -156,7 +157,7 @@ struct sample_results sample(const struct device *dev, int s, int i) {
         k_sleep(K_MSEC(100));
     }
 
-    return (struct sample_results) {
+    return (struct sample_results){
         .min = min,
         .max = max,
         .avg = avg,
@@ -164,63 +165,119 @@ struct sample_results sample(const struct device *dev, int s, int i) {
     };
 }
 
-uint16_t normalize (uint16_t val, uint16_t avg_low, uint16_t avg_high) {
+uint16_t normalize(uint16_t val, uint16_t avg_low, uint16_t avg_high) {
     val = MAX(val, avg_low);
     val = MIN(val, avg_high);
 
     uint32_t numerator = UINT16_MAX * (val - avg_low);
     uint16_t denominator = avg_high - avg_low;
 
-    return (uint16_t) (numerator / denominator);
+    return (uint16_t)(numerator / denominator);
 }
+
+#if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_CALIBRATOR)
 
 void calibrate(const struct device *dev) {
     const struct kscan_ec_matrix_config *cfg = dev->config;
     struct kscan_ec_matrix_data *data = dev->data;
-
+    uint16_t keys_to_complete = 0;
+    if (data->calibration_callback) {
+        struct zmk_kscan_ec_matrix_calibration_event ev = {
+            .type = CALIBRATION_EV_LOW_SAMPLING_START,
+            .data = {}};
+        data->calibration_callback(&ev, data->calibration_user_data);
+    }
     for (int s = 0; s < cfg->strobes_len; s++) {
         for (int i = 0; i < cfg->inputs_len; i++) {
             if (cfg->strobe_input_masks && (cfg->strobe_input_masks[s] & BIT(i)) != 0) {
                 continue;
             }
 
+            struct zmk_kscan_ec_matrix_calibration_entry *calibration =
+                calibration_entry_for_strobe_input(dev, s, i);
+            memset(calibration, 0, sizeof(struct zmk_kscan_ec_matrix_calibration_entry));
             struct sample_results low_res = sample(dev, s, i);
 
-            LOG_DBG("Low avg for %d,%d using %d and %d is %d. Noise %d", s, i, low_res.max, low_res.min, low_res.avg, low_res.noise);
+            LOG_DBG("Low avg for %d,%d using %d and %d is %d. Noise %d", s, i, low_res.max,
+                    low_res.min, low_res.avg, low_res.noise);
             if (data->calibration_callback) {
-                struct zmk_kscan_ec_matrix_calibration_event ev = { .type = CALIBRATION_EV_POSITION_LOW_DETERMINED, .data = { .position_low_determined = { .low_avg = low_res.avg, .strobe = s, .input = i, .noise = low_res.noise } } };
-                data->calibration_callback(&ev, data->calibration_user_data);
-            }            
-
-            while(read_raw_matrix_state(dev, s, i) < (low_res.avg + (low_res.noise/2))) {
-                k_sleep(K_SECONDS(1));
-            }
-
-            k_sleep(K_MSEC(500));
-
-            struct sample_results high_res = sample(dev, s, i);
-        
-            uint16_t snr = (high_res.max - low_res.max) / low_res.noise;
-            LOG_DBG("High avg for %d,%d is %d. SNR %d", s, i, high_res.avg, snr);
-
-            if (data->calibration_callback) {
-                struct zmk_kscan_ec_matrix_calibration_event ev = { .type = CALIBRATION_EV_POSITION_COMPLETE, .data = { .position_complete = { .high_avg = high_res.avg, .snr = snr, .low_avg = low_res.avg, .strobe = s, .input = i, .noise = low_res.noise} } };
+                struct zmk_kscan_ec_matrix_calibration_event ev = {
+                    .type = CALIBRATION_EV_POSITION_LOW_DETERMINED,
+                    .data = {.position_low_determined = {.low_avg = low_res.avg,
+                                                         .strobe = s,
+                                                         .input = i,
+                                                         .noise = low_res.noise}}};
                 data->calibration_callback(&ev, data->calibration_user_data);
             }
 
-            struct zmk_kscan_ec_matrix_calibration_entry *calibration = calibration_entry_for_strobe_input(dev, s, i);
             calibration->avg_low = low_res.avg;
-            calibration->avg_high = high_res.avg;
-            calibration->noise = MAX(low_res.noise, high_res.noise);
-
-            while(read_raw_matrix_state(dev, s, i) > (low_res.avg * 2)) {
-                k_sleep(K_MSEC(500));
-            }
+            calibration->noise = low_res.noise;
+            keys_to_complete++;
         }
     }
 
     if (data->calibration_callback) {
-        struct zmk_kscan_ec_matrix_calibration_event ev = { .type = CALIBRATION_EV_COMPLETE, };
+        struct zmk_kscan_ec_matrix_calibration_event ev = {
+            .type = CALIBRATION_EV_HIGH_SAMPLING_START,
+            .data = {}};
+        data->calibration_callback(&ev, data->calibration_user_data);
+    }
+
+    while(keys_to_complete > 0) {
+        for (int s = 0; s < cfg->strobes_len; s++) {
+            for (int i = 0; i < cfg->inputs_len; i++) {
+                if (cfg->strobe_input_masks && (cfg->strobe_input_masks[s] & BIT(i)) != 0) {
+                    continue;
+                }
+
+                struct zmk_kscan_ec_matrix_calibration_entry *calibration =
+                    calibration_entry_for_strobe_input(dev, s, i);
+
+                if (calibration->avg_high > 0) {
+                    continue;
+                }
+
+                if (read_raw_matrix_state(dev, s, i) <
+                    (calibration->avg_low + (calibration->noise * 7))) {
+                    continue;
+                }
+
+                k_sleep(K_MSEC(200));
+
+                struct sample_results high_res = sample(dev, s, i);
+
+                // Rough approximation of SNR by using avg difference + noise over noise
+                uint16_t snr =
+                    (high_res.avg - calibration->avg_low + calibration->noise) / calibration->noise;
+                LOG_DBG("High avg for %d,%d is %d. SNR %d", s, i, high_res.avg, snr);
+
+                if (data->calibration_callback) {
+                    struct zmk_kscan_ec_matrix_calibration_event ev = {
+                        .type = CALIBRATION_EV_POSITION_COMPLETE,
+                        .data = {.position_complete = {.high_avg = calibration->avg_high,
+                                                    .snr = snr,
+                                                    .low_avg = calibration->avg_low,
+                                                    .strobe = s,
+                                                    .input = i,
+                                                    .noise = calibration->noise}}};
+                    data->calibration_callback(&ev, data->calibration_user_data);
+                }
+
+                calibration->avg_high = high_res.avg;
+                calibration->noise = MAX(calibration->noise, high_res.noise);
+                keys_to_complete--;
+            }
+
+            k_sleep(K_MSEC(1));
+        }
+
+        k_sleep(K_MSEC(1));
+    }
+
+    if (data->calibration_callback) {
+        struct zmk_kscan_ec_matrix_calibration_event ev = {
+            .type = CALIBRATION_EV_COMPLETE,
+        };
         data->calibration_callback(&ev, data->calibration_user_data);
     }
 
@@ -228,7 +285,9 @@ void calibrate(const struct device *dev) {
     data->calibration_user_data = NULL;
 }
 
-int zmk_kscan_ec_matrix_calibrate(const struct device *dev, zmk_kscan_ec_matrix_calibration_cb_t callback, const void *user_data) {
+int zmk_kscan_ec_matrix_calibrate(const struct device *dev,
+                                  zmk_kscan_ec_matrix_calibration_cb_t callback,
+                                  const void *user_data) {
     struct kscan_ec_matrix_data *data = dev->data;
 
     int ret = k_mutex_lock(&data->mutex, K_SECONDS(1));
@@ -245,7 +304,11 @@ int zmk_kscan_ec_matrix_calibrate(const struct device *dev, zmk_kscan_ec_matrix_
     return 0;
 }
 
-int zmk_kscan_ec_matrix_access_calibration(const struct device *dev, zmk_kscan_ec_matrix_calibration_access_cb_t cb, const void *user_data) {
+#endif // IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_CALIBRATOR)
+
+int zmk_kscan_ec_matrix_access_calibration(const struct device *dev,
+                                           zmk_kscan_ec_matrix_calibration_access_cb_t cb,
+                                           const void *user_data) {
     const struct kscan_ec_matrix_config *cfg = dev->config;
     struct kscan_ec_matrix_data *data = dev->data;
 
@@ -262,9 +325,7 @@ int zmk_kscan_ec_matrix_access_calibration(const struct device *dev, zmk_kscan_e
     return 0;
 }
 
-
-static void kscan_ec_matrix_read(const struct device *dev)
-{
+static void kscan_ec_matrix_read(const struct device *dev) {
     const struct kscan_ec_matrix_config *cfg = dev->config;
     struct kscan_ec_matrix_data *data = dev->data;
 
@@ -282,7 +343,8 @@ static void kscan_ec_matrix_read(const struct device *dev)
 
     for (int r = 0; r < cfg->inputs_len; r++) {
         for (int s = 0; s < cfg->strobes_len; s++) {
-            struct zmk_kscan_ec_matrix_calibration_entry *calibration = calibration_entry_for_strobe_input(dev, s, r);
+            struct zmk_kscan_ec_matrix_calibration_entry *calibration =
+                calibration_entry_for_strobe_input(dev, s, r);
 
             if (!calibration || calibration->avg_high == 0) {
                 continue;
@@ -300,8 +362,10 @@ static void kscan_ec_matrix_read(const struct device *dev)
             uint16_t range = calibration->avg_high - calibration->avg_low;
             uint16_t press_limit_raw = calibration->avg_high - (range / 5);
             uint16_t hys_buffer = calibration->noise * 3;
-            uint16_t press_limit = normalize(press_limit_raw, calibration->avg_low, calibration->avg_high);
-            uint16_t release_limit = normalize(press_limit_raw - hys_buffer, calibration->avg_low, calibration->avg_high);
+            uint16_t press_limit =
+                normalize(press_limit_raw, calibration->avg_low, calibration->avg_high);
+            uint16_t release_limit = normalize(press_limit_raw - hys_buffer, calibration->avg_low,
+                                               calibration->avg_high);
 
             if (buf > press_limit && !prev) {
                 WRITE_BIT(rows[s], r, 1);
@@ -333,32 +397,63 @@ static void kscan_ec_matrix_read(const struct device *dev)
     }
 }
 
-static void kscan_ec_matrix_thread_main(void *arg1, void *unused1, void *unused2)
-{
-	ARG_UNUSED(unused1);
-	ARG_UNUSED(unused2);
+#if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_SCAN_RATE_CALC)
 
-	const struct device *dev = (const struct device *)arg1;
-	struct kscan_ec_matrix_data *data = dev->data;
+uint64_t zmk_kscan_ec_matrix_max_scan_duration_ns(const struct device *dev) {
+    struct kscan_ec_matrix_data *data = dev->data;
 
-	while (1) {
+    k_mutex_lock(&data->mutex, K_MSEC(10));
+
+    uint64_t val = data->max_scan_duration_ns;
+
+    k_mutex_unlock(&data->mutex);
+
+    return val;
+}
+#endif // IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_SCAN_RATE_CALC)
+
+static void kscan_ec_matrix_thread_main(void *arg1, void *unused1, void *unused2) {
+    ARG_UNUSED(unused1);
+    ARG_UNUSED(unused2);
+
+    const struct device *dev = (const struct device *)arg1;
+    struct kscan_ec_matrix_data *data = dev->data;
+
+    while (1) {
         k_mutex_lock(&data->mutex, K_FOREVER);
         if (data->calibration_callback) {
             calibrate(dev);
         } else {
-		    kscan_ec_matrix_read(dev);
+#if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_SCAN_RATE_CALC)
+            timing_start();
+            timing_t c1 = timing_counter_get();
+#endif // IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_SCAN_RATE_CALC)
+
+            kscan_ec_matrix_read(dev);
+
+#if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_SCAN_RATE_CALC)
+            timing_t c2 = timing_counter_get();
+            uint64_t cycles = timing_cycles_get(&c1, &c2);
+            uint64_t ns_spent = timing_cycles_to_ns(cycles);
+            timing_stop();
+
+            data->max_scan_duration_ns = ns_spent;
+#endif // IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_SCAN_RATE_CALC)
         }
         k_mutex_unlock(&data->mutex);
         k_sleep(K_MSEC(data->poll_interval));
-	}
+    }
 }
 
-static int kscan_ec_matrix_init(const struct device *dev)
-{
+static int kscan_ec_matrix_init(const struct device *dev) {
     int err;
     struct kscan_ec_matrix_data *data = dev->data;
     const struct kscan_ec_matrix_config *cfg = dev->config;
     data->dev = dev;
+
+#if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_SCAN_RATE_CALC)
+    timing_init();
+#endif // IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_SCAN_RATE_CALC)
 
     k_mutex_init(&data->mutex);
 
@@ -374,9 +469,9 @@ static int kscan_ec_matrix_init(const struct device *dev)
     }
 
     err = pinctrl_apply_state(cfg->pcfg, PINCTRL_STATE_DEFAULT);
-	if (err < 0) {
-		return err;
-	}
+    if (err < 0) {
+        return err;
+    }
 
     if (cfg->power.port != NULL) {
         if (!device_is_ready(cfg->power.port)) {
@@ -416,17 +511,9 @@ static int kscan_ec_matrix_init(const struct device *dev)
 
     data->poll_interval = cfg->active_polling_interval_ms;
 
-    k_thread_create(
-		&data->thread,
-		data->thread_stack,
-		CONFIG_ZMK_KSCAN_EC_MATRIX_THREAD_STACK_SIZE,
-		kscan_ec_matrix_thread_main,
-		(void *)dev,
-		NULL,
-		NULL,
-		K_PRIO_COOP(CONFIG_ZMK_KSCAN_EC_MATRIX_THREAD_PRIORITY),
-		0,
-		K_NO_WAIT);
+    k_thread_create(&data->thread, data->thread_stack, CONFIG_ZMK_KSCAN_EC_MATRIX_THREAD_STACK_SIZE,
+                    kscan_ec_matrix_thread_main, (void *)dev, NULL, NULL,
+                    K_PRIO_COOP(CONFIG_ZMK_KSCAN_EC_MATRIX_THREAD_PRIORITY), 0, K_NO_WAIT);
 
     k_thread_suspend(&data->thread);
 
@@ -438,46 +525,45 @@ static const struct kscan_driver_api kscan_ec_matrix_api = {
     .disable_callback = kscan_ec_matrix_disable,
 };
 
-#define ZKEM_GPIO_DT_SPEC_ELEM(n, prop, idx) \
-    GPIO_DT_SPEC_GET_BY_IDX(n, prop, idx),
+#define ZKEM_GPIO_DT_SPEC_ELEM(n, prop, idx) GPIO_DT_SPEC_GET_BY_IDX(n, prop, idx),
 
 #define ZERO(n, idx) 0
 
 #define ENTRIES(n) DT_INST_PROP_LEN(n, strobe_gpios) * DT_INST_PROP_LEN(n, input_gpios)
 
-#define ZKEM_INIT(n)                                                       \
-    PINCTRL_DT_INST_DEFINE(n);						\
-    static struct zmk_kscan_ec_matrix_calibration_entry calibration_entries_##n[ENTRIES(n)] = { 0 }; \
-    COND_CODE_1(DT_INST_NODE_HAS_PROP(n, strobe_input_masks), (static const uint32_t strobe_input_masks_##n[] = DT_INST_PROP(n, strobe_input_masks);), ( )) \
-    static struct kscan_ec_matrix_data kscan_ec_matrix_data##n = { \
-        .calibrations = calibration_entries_##n, \
-        .matrix_state = { LISTIFY(DT_INST_PROP_LEN(n, strobe_gpios), ZERO, (,)) },\
-    };                         \
-    static const struct gpio_dt_spec inputs_##n[] = {DT_FOREACH_PROP_ELEM(DT_DRV_INST(n), input_gpios, ZKEM_GPIO_DT_SPEC_ELEM)}; \
-    static const struct kscan_ec_matrix_config kscan_ec_matrix_config##n = {            \
-        .pcfg = PINCTRL_DT_INST_DEV_CONFIG_GET(n),			\
-        .adc_channel = ADC_DT_SPEC_INST_GET(n), \
-        .power = GPIO_DT_SPEC_INST_GET_OR(n, power_gpios, {0}), \
-        .drain = GPIO_DT_SPEC_INST_GET_OR(n, drain_gpios, {0}), \
-        .strobes = {DT_FOREACH_PROP_ELEM(DT_DRV_INST(n), strobe_gpios, ZKEM_GPIO_DT_SPEC_ELEM)}, \
-        .strobes_len = DT_INST_PROP_LEN(n, strobe_gpios), \
-        .inputs = inputs_##n, \
-        .inputs_len = DT_INST_PROP_LEN(n, input_gpios), \
-        COND_CODE_1(DT_INST_NODE_HAS_PROP(n, strobe_input_masks), (.strobe_input_masks = strobe_input_masks_##n,), ( )) \
-        .matrix_warm_up_ms = DT_INST_PROP_OR(n, matrix_warm_up_ms, 0),                        \
-        .matrix_relax_us = DT_INST_PROP_OR(n, matrix_relax_us, 0),                            \
-        .adc_read_settle_us = DT_INST_PROP_OR(n, adc_read_settle_us, 0),                      \
-        .active_polling_interval_ms = DT_INST_PROP_OR(n, active_polling_interval_ms, 1),      \
-        .idle_polling_interval_ms = DT_INST_PROP_OR(n, idle_polling_interval_ms, 5),          \
-        .sleep_polling_interval_ms = DT_INST_PROP_OR(n, sleep_polling_interval_ms, 500),        \
-    };                                                                                     \
-    DEVICE_DT_INST_DEFINE(n,                                                            \
-                          kscan_ec_matrix_init,                                            \
-                          NULL,                                                            \
-                          &kscan_ec_matrix_data##n,                                     \
-                          &kscan_ec_matrix_config##n,                                   \
-                          APPLICATION,                                                     \
-                          CONFIG_APPLICATION_INIT_PRIORITY,                                \
-                          &kscan_ec_matrix_api);
+#define ZKEM_INIT(n)                                                                               \
+    PINCTRL_DT_INST_DEFINE(n);                                                                     \
+    static struct zmk_kscan_ec_matrix_calibration_entry calibration_entries_##n[ENTRIES(n)] = {0}; \
+    COND_CODE_1(                                                                                   \
+        DT_INST_NODE_HAS_PROP(n, strobe_input_masks),                                              \
+        (static const uint32_t strobe_input_masks_##n[] = DT_INST_PROP(n, strobe_input_masks);),   \
+        ())                                                                                        \
+    static struct kscan_ec_matrix_data kscan_ec_matrix_data##n = {                                 \
+        .calibrations = calibration_entries_##n,                                                   \
+        .matrix_state = {LISTIFY(DT_INST_PROP_LEN(n, strobe_gpios), ZERO, (, ))},                  \
+    };                                                                                             \
+    static const struct gpio_dt_spec inputs_##n[] = {                                              \
+        DT_FOREACH_PROP_ELEM(DT_DRV_INST(n), input_gpios, ZKEM_GPIO_DT_SPEC_ELEM)};                \
+    static const struct kscan_ec_matrix_config kscan_ec_matrix_config##n = {                       \
+        .pcfg = PINCTRL_DT_INST_DEV_CONFIG_GET(n),                                                 \
+        .adc_channel = ADC_DT_SPEC_INST_GET(n),                                                    \
+        .power = GPIO_DT_SPEC_INST_GET_OR(n, power_gpios, {0}),                                    \
+        .drain = GPIO_DT_SPEC_INST_GET_OR(n, drain_gpios, {0}),                                    \
+        .strobes = {DT_FOREACH_PROP_ELEM(DT_DRV_INST(n), strobe_gpios, ZKEM_GPIO_DT_SPEC_ELEM)},   \
+        .strobes_len = DT_INST_PROP_LEN(n, strobe_gpios),                                          \
+        .inputs = inputs_##n,                                                                      \
+        .inputs_len = DT_INST_PROP_LEN(n, input_gpios),                                            \
+        COND_CODE_1(DT_INST_NODE_HAS_PROP(n, strobe_input_masks),                                  \
+                    (.strobe_input_masks = strobe_input_masks_##n, ), ())                          \
+            .matrix_warm_up_ms = DT_INST_PROP_OR(n, matrix_warm_up_ms, 0),                         \
+        .matrix_relax_us = DT_INST_PROP_OR(n, matrix_relax_us, 0),                                 \
+        .adc_read_settle_us = DT_INST_PROP_OR(n, adc_read_settle_us, 0),                           \
+        .active_polling_interval_ms = DT_INST_PROP_OR(n, active_polling_interval_ms, 1),           \
+        .idle_polling_interval_ms = DT_INST_PROP_OR(n, idle_polling_interval_ms, 5),               \
+        .sleep_polling_interval_ms = DT_INST_PROP_OR(n, sleep_polling_interval_ms, 500),           \
+    };                                                                                             \
+    DEVICE_DT_INST_DEFINE(n, kscan_ec_matrix_init, NULL, &kscan_ec_matrix_data##n,                 \
+                          &kscan_ec_matrix_config##n, APPLICATION,                                 \
+                          CONFIG_APPLICATION_INIT_PRIORITY, &kscan_ec_matrix_api);
 
 DT_INST_FOREACH_STATUS_OKAY(ZKEM_INIT)

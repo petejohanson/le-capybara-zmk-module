@@ -19,6 +19,13 @@ config ZMK_KSCAN_EC_MATRIX_SETTINGS
 	default y
 	depends on SETTINGS
 
+
+config ZMK_KSCAN_EC_MATRIX_SCAN_RATE_CALC
+	bool "EC Matrix scan rate calculation"
+	default n
+	depends on ZMK_KSCAN_EC_MATRIX
+	select TIMING_FUNCTIONS
+
 config ZMK_KSCAN_EC_MATRIX_SETTINGS_INIT_LOAD
 	bool "EC Matrix Settings auto load on start"
 	default y
