@@ -21,6 +21,7 @@
 LOG_MODULE_REGISTER(ec_matrix_shell);
 
 #define CMD_HELP_SCAN_RATE "Print EC Scan Rate.\n"
+#define CMD_HELP_READ_TIMING "Print EC Read Timing.\n"
 #define CMD_HELP_CALIBRATE "EC Calibration Utilities.\n"
 #define CMD_HELP_CALIBRATION_START "Calibrate the EC Martix.\n"
 
@@ -119,6 +120,35 @@ static int cmd_matrix_scan_rate(const struct shell *shell, size_t argc, char **a
 
 #endif // IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_SCAN_RATE_CALC)
 
+#if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_READ_TIMING)
+
+static void print_pct(const struct shell *shell, uint64_t total_ns, uint64_t subset_ns, const char *label) {
+    uint32_t pct = (subset_ns * 100) / total_ns;
+
+    shell_print(shell, "%s: %u%%", label, pct);
+}
+
+static int cmd_matrix_read_timing(const struct shell *shell, size_t argc, char **argv, void *data) {
+    struct matrix_hdl *matrix = get_matrix(argv[-1]);
+	struct zmk_kscan_ec_matrix_read_timing timing = zmk_kscan_ec_matrix_read_timing(matrix->dev);
+
+    shell_print(shell, "Total time for a read: %lluns", timing.total_ns);
+    print_pct(shell, timing.total_ns, timing.adc_sequence_init_ns, "Sequence Init");
+    print_pct(shell, timing.total_ns, timing.gpio_input_ns, "GPIO Input");
+    print_pct(shell, timing.total_ns, timing.relax_ns, "Relax");
+    print_pct(shell, timing.total_ns, timing.plug_drain_ns, "Plug Drain");
+    print_pct(shell, timing.total_ns, timing.set_strobe_ns, "Set Strobe");
+    print_pct(shell, timing.total_ns, timing.read_settle_ns, "Read Settle");
+    print_pct(shell, timing.total_ns, timing.adc_read_ns, "ADC Read");
+    print_pct(shell, timing.total_ns, timing.unset_strobe_ns, "Unset Strobe");
+    print_pct(shell, timing.total_ns, timing.pull_drain_ns, "Pull Drain");
+    print_pct(shell, timing.total_ns, timing.input_disconnect_ns, "Disconnect Input");
+    
+    return 0;
+}
+
+#endif // IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_READ_TIMING)
+
 #if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_SETTINGS)
 
 static int cmd_matrix_calibration_save(const struct shell *shell, size_t argc, char **argv,
@@ -163,6 +193,9 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_matrix_cmds,
 #if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_SCAN_RATE_CALC)
 	SHELL_CMD(scan_rate, NULL, CMD_HELP_SCAN_RATE, cmd_matrix_scan_rate),
 #endif // IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_SCAN_RATE_CALC)
+#if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_READ_TIMING)
+    SHELL_CMD(read_timing, NULL, CMD_HELP_READ_TIMING, cmd_matrix_read_timing),
+#endif // IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_READ_TIMING)
                                SHELL_SUBCMD_SET_END /* Array terminated. */
 );
 

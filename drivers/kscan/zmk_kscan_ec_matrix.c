@@ -19,8 +19,8 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(zmk_kscan_ec_matrix);
 
-#if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_SCAN_RATE_CALC)
-#include <zephyr/timing/timing.h>
+#if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_SCAN_RATE_CALC) || IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_READ_TIMING)
+    #include <zephyr/timing/timing.h>
 #endif
 
 struct kscan_ec_matrix_config {
@@ -55,6 +55,9 @@ struct kscan_ec_matrix_data {
 #if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_SCAN_RATE_CALC)
     uint64_t max_scan_duration_ns;
 #endif // IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_SCAN_RATE_CALC)
+#if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_READ_TIMING)
+    struct zmk_kscan_ec_matrix_read_timing read_timing;
+#endif
     struct zmk_kscan_ec_matrix_calibration_entry *calibrations;
     uint64_t matrix_state[];
 };
@@ -97,21 +100,58 @@ static uint16_t read_raw_matrix_state(const struct device *dev, uint8_t strobe, 
         .buffer_size = sizeof(buf),
     };
 
+#if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_READ_TIMING)
+    struct kscan_ec_matrix_data *data = dev->data;
+
+    timing_start();
+    timing_t start_time = timing_counter_get();
+#endif
+
     adc_sequence_init_dt(&cfg->adc_channel, &sequence);
+
+#if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_READ_TIMING)
+    timing_t adc_init_done = timing_counter_get();
+#endif
 
     gpio_pin_configure_dt(&cfg->inputs[input], GPIO_INPUT);
 
+#if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_READ_TIMING)
+    timing_t gpio_input_done = timing_counter_get();
+#endif
+
     // TODO: Only wait as long as is need after drain pin was set low.
-    k_busy_wait(cfg->matrix_relax_us);
+    if (cfg->matrix_relax_us > 0) {
+        k_busy_wait(cfg->matrix_relax_us);
+    }
+
+
+#if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_READ_TIMING)
+    timing_t relax_done = timing_counter_get();
+#endif
 
     if (cfg->drain.port != NULL) {
         gpio_pin_set_dt(&cfg->drain, 1);
     }
 
+
+#if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_READ_TIMING)
+    timing_t drain_released_done = timing_counter_get();
+#endif
+
     const uint32_t lock = irq_lock();
 
     gpio_pin_set_dt(&cfg->strobes[strobe], 1);
+
+#if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_READ_TIMING)
+    timing_t set_strobe_done = timing_counter_get();
+#endif
+
     k_busy_wait(cfg->adc_read_settle_us);
+
+#if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_READ_TIMING)
+    timing_t adc_read_settle_done = timing_counter_get();
+#endif
+
     int ret = adc_read(cfg->adc_channel.dev, &sequence);
     if (ret < 0) {
         LOG_ERR("ADC READ ERROR %d", ret);
@@ -119,13 +159,47 @@ static uint16_t read_raw_matrix_state(const struct device *dev, uint8_t strobe, 
 
     irq_unlock(lock);
 
+
+#if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_READ_TIMING)
+    timing_t adc_read_done = timing_counter_get();
+#endif
+
     gpio_pin_set_dt(&cfg->strobes[strobe], 0);
+
+
+#if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_READ_TIMING)
+    timing_t strobe_unset_done = timing_counter_get();
+#endif
 
     if (cfg->drain.port != NULL) {
         gpio_pin_set_dt(&cfg->drain, 0);
     }
 
+#if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_READ_TIMING)
+    timing_t drain_unset_done = timing_counter_get();
+#endif
+
     gpio_pin_configure_dt(&cfg->inputs[input], GPIO_DISCONNECTED);
+
+#if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_READ_TIMING)
+    timing_t gpio_input_disconnect_done = timing_counter_get();
+
+    timing_stop();
+
+    data->read_timing = (struct zmk_kscan_ec_matrix_read_timing){
+        .total_ns = timing_cycles_to_ns(timing_cycles_get(&start_time, &gpio_input_disconnect_done)),
+        .adc_sequence_init_ns = timing_cycles_to_ns(timing_cycles_get(&start_time, &adc_init_done)),
+        .gpio_input_ns = timing_cycles_to_ns(timing_cycles_get(&adc_init_done, &gpio_input_done)),
+        .relax_ns = timing_cycles_to_ns(timing_cycles_get(&gpio_input_done, &relax_done)),
+        .plug_drain_ns = timing_cycles_to_ns(timing_cycles_get(&relax_done, &drain_released_done)),
+        .set_strobe_ns = timing_cycles_to_ns(timing_cycles_get(&drain_released_done, &set_strobe_done)),
+        .read_settle_ns = timing_cycles_to_ns(timing_cycles_get(&set_strobe_done, &adc_read_settle_done)),
+        .adc_read_ns = timing_cycles_to_ns(timing_cycles_get(&adc_read_settle_done, &adc_read_done)),
+        .unset_strobe_ns = timing_cycles_to_ns(timing_cycles_get(&adc_read_done, &strobe_unset_done)),
+        .pull_drain_ns = timing_cycles_to_ns(timing_cycles_get(&strobe_unset_done, &drain_unset_done)),
+        .input_disconnect_ns = timing_cycles_to_ns(timing_cycles_get(&drain_unset_done, &gpio_input_disconnect_done)),
+    };
+#endif
 
     return buf;
 }
@@ -410,7 +484,24 @@ uint64_t zmk_kscan_ec_matrix_max_scan_duration_ns(const struct device *dev) {
 
     return val;
 }
+
 #endif // IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_SCAN_RATE_CALC)
+
+#if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_READ_TIMING)
+
+struct zmk_kscan_ec_matrix_read_timing zmk_kscan_ec_matrix_read_timing(const struct device *dev) {
+    struct kscan_ec_matrix_data *data = dev->data;
+
+    k_mutex_lock(&data->mutex, K_MSEC(10));
+
+    struct zmk_kscan_ec_matrix_read_timing val = data->read_timing;
+
+    k_mutex_unlock(&data->mutex);
+
+    return val;
+}
+
+#endif // IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_READ_TIMING)
 
 static void kscan_ec_matrix_thread_main(void *arg1, void *unused1, void *unused2) {
     ARG_UNUSED(unused1);

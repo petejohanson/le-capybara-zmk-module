@@ -26,6 +26,12 @@ config ZMK_KSCAN_EC_MATRIX_SCAN_RATE_CALC
 	depends on ZMK_KSCAN_EC_MATRIX
 	select TIMING_FUNCTIONS
 
+config ZMK_KSCAN_EC_MATRIX_READ_TIMING
+	bool "EC Matrix read timing detail capture"
+	default n
+	depends on ZMK_KSCAN_EC_MATRIX
+	select TIMING_FUNCTIONS
+
 config ZMK_KSCAN_EC_MATRIX_SETTINGS_INIT_LOAD
 	bool "EC Matrix Settings auto load on start"
 	default y
