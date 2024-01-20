@@ -325,6 +325,10 @@ void calibrate(const struct device *dev) {
                     (high_res.avg - calibration->avg_low + calibration->noise) / calibration->noise;
                 LOG_DBG("High avg for %d,%d is %d. SNR %d", s, i, high_res.avg, snr);
 
+                calibration->avg_high = high_res.avg;
+                calibration->noise = MAX(calibration->noise, high_res.noise);
+                keys_to_complete--;
+
                 if (data->calibration_callback) {
                     struct zmk_kscan_ec_matrix_calibration_event ev = {
                         .type = CALIBRATION_EV_POSITION_COMPLETE,
@@ -336,10 +340,6 @@ void calibrate(const struct device *dev) {
                                                     .noise = calibration->noise}}};
                     data->calibration_callback(&ev, data->calibration_user_data);
                 }
-
-                calibration->avg_high = high_res.avg;
-                calibration->noise = MAX(calibration->noise, high_res.noise);
-                keys_to_complete--;
             }
 
             k_sleep(K_MSEC(1));
