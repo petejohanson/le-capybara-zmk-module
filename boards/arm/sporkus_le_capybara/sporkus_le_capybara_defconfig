@@ -17,7 +17,14 @@ CONFIG_ADC=y
 
 # ZMK Settings
 CONFIG_ZMK_USB=y
-# CONFIG_ZMK_KSCAN_MATRIX_POLLING=y
+
+# Settings subsystem
+CONFIG_SETTINGS=y
+CONFIG_FLASH=y
+CONFIG_FLASH_MAP=y
+CONFIG_NVS=y
+CONFIG_SETTINGS_NVS=y
+
 CONFIG_USB_SELF_POWERED=n
 
 # Needed to reduce this to size that will fit on F072
