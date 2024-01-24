@@ -22,6 +22,9 @@
 	#address-cells = <1>;
 	#size-cells = <0>;
 
+	st,adc-clock-source = <ASYNC>;
+	st,adc-prescaler = <1>;
+
 	channel@2 {
 		reg = <2>;
 		zephyr,gain = "ADC_GAIN_1";
@@ -68,7 +71,6 @@
         zephyr,shell-uart = &cdc_acm_uart;
         zmk,kscan = &matrix;
         zmk,matrix_transform = &transform;
-        zephyr,display = &oled;
         /* TODO: Enable once we support the IC for underglow
         zmk,underglow = &led_strip;
          */
@@ -156,38 +158,32 @@
     };
 };
 
-&i2c1 {
-    pinctrl-0 = <&i2c1_scl_pb6 &i2c1_sda_pb7>;
-    pinctrl-names = "default";
-    // status = "okay";
-    clock-frequency = <I2C_BITRATE_FAST>;
-
-    oled: ssd1306@3c {
-	status = "disabled";
-        compatible = "solomon,ssd1306fb";
-        reg = <0x3c>;
-        label = "DISPLAY";
-        width = <128>;
-        height = <32>;
-        segment-offset = <0>;
-        page-offset = <0>;
-        display-offset = <0>;
-        multiplex-ratio = <31>;
-        segment-remap;
-        com-invdir;
-        com-sequential;
-        prechargep = <0x22>;
-    };
-};
-
 &usb {
     status = "okay";
+
+    pinctrl-0 = <&usb_dm_pa11 &usb_dp_pa12>;
+    pinctrl-names = "default";
+
     // Overriden to lower RAM usage.
-    num-bidir-endpoints = <5>;
+    num-bidir-endpoints = <4>;
 
     cdc_acm_uart: cdc_acm_uart {
         compatible = "zephyr,cdc-acm-uart";
     };
+};
+
+// Enable all the clocks!
+&clk_lsi {
+    status = "okay";
+};
+
+&clk_hsi48 {
+    status = "okay";
+};
+
+// Enable this clock so we can use async 14MHz ADC clock
+&clk_hsi14 {
+    status = "okay";
 };
 
 &clk_hsi {
