@@ -37,13 +37,13 @@ static int zgm_pin_config(const struct device *dev, gpio_pin_t pin, gpio_flags_t
     } else if (flags & GPIO_INPUT) {
         data->active_pin = pin;
         for (int i = 0; i < cfg->sel_gpios_len; i++) {
-            bool val = (pin & BIT(i)) != 0;
+            int val = (pin & BIT(i)) != 0 ? 1 : 0;
             gpio_pin_set_dt(&cfg->sel_gpios[i], val);
         }
 
-        ret = gpio_pin_set_dt(&cfg->en_gpio, true);
+        ret = gpio_pin_set_dt(&cfg->en_gpio, 1);
     } else {
-        ret = gpio_pin_set_dt(&cfg->en_gpio, false);
+        ret = gpio_pin_set_dt(&cfg->en_gpio, 0);
         if (ret < 0) {
             LOG_ERR("Failed to disable the en-gpio");
             return ret;
@@ -81,7 +81,6 @@ static int zgm_init(const struct device *dev) {
         }
 
         gpio_pin_configure_dt(&cfg->en_gpio, GPIO_OUTPUT_INACTIVE);
-        gpio_pin_set_dt(&cfg->en_gpio, false);
     }
 
     for (int i = 0; i < cfg->sel_gpios_len; i++) {

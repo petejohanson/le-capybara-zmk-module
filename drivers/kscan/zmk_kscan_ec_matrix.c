@@ -93,6 +93,7 @@ calibration_entry_for_strobe_input(const struct device *dev, uint8_t strobe, uin
 
 static uint16_t read_raw_matrix_state(const struct device *dev, uint8_t strobe, uint8_t input) {
     const struct kscan_ec_matrix_config *cfg = dev->config;
+    int ret;
 
     int16_t buf;
     struct adc_sequence sequence = {
@@ -113,7 +114,10 @@ static uint16_t read_raw_matrix_state(const struct device *dev, uint8_t strobe, 
     timing_t adc_init_done = timing_counter_get();
 #endif
 
-    gpio_pin_configure_dt(&cfg->inputs[input], GPIO_INPUT);
+    ret = gpio_pin_configure_dt(&cfg->inputs[input], GPIO_INPUT);
+    if (ret < 0) {
+        LOG_ERR("Failed to set the input pin (%d)", ret);
+    }
 
 #if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_READ_TIMING)
     timing_t gpio_input_done = timing_counter_get();
@@ -124,7 +128,6 @@ static uint16_t read_raw_matrix_state(const struct device *dev, uint8_t strobe, 
         k_busy_wait(cfg->matrix_relax_us);
     }
 
-
 #if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_READ_TIMING)
     timing_t relax_done = timing_counter_get();
 #endif
@@ -132,7 +135,6 @@ static uint16_t read_raw_matrix_state(const struct device *dev, uint8_t strobe, 
     if (cfg->drain.port != NULL) {
         gpio_pin_set_dt(&cfg->drain, 1);
     }
-
 
 #if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_READ_TIMING)
     timing_t drain_released_done = timing_counter_get();
@@ -152,7 +154,7 @@ static uint16_t read_raw_matrix_state(const struct device *dev, uint8_t strobe, 
     timing_t adc_read_settle_done = timing_counter_get();
 #endif
 
-    int ret = adc_read(cfg->adc_channel.dev, &sequence);
+    ret = adc_read(cfg->adc_channel.dev, &sequence);
     if (ret < 0) {
         LOG_ERR("ADC READ ERROR %d", ret);
     }
@@ -165,7 +167,6 @@ static uint16_t read_raw_matrix_state(const struct device *dev, uint8_t strobe, 
 #endif
 
     gpio_pin_set_dt(&cfg->strobes[strobe], 0);
-
 
 #if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_READ_TIMING)
     timing_t strobe_unset_done = timing_counter_get();
@@ -261,6 +262,10 @@ void calibrate(const struct device *dev) {
             .data = {}};
         data->calibration_callback(&ev, data->calibration_user_data);
     }
+
+    // Read one sample and toss it. This ensures the ADC has been enabled before taking real samples.
+    read_raw_matrix_state(dev, 0, 0);
+
     for (int s = 0; s < cfg->strobes_len; s++) {
         for (int i = 0; i < cfg->inputs_len; i++) {
             if (cfg->strobe_input_masks && (cfg->strobe_input_masks[s] & BIT(i)) != 0) {
@@ -654,7 +659,7 @@ static const struct kscan_driver_api kscan_ec_matrix_api = {
         .sleep_polling_interval_ms = DT_INST_PROP_OR(n, sleep_polling_interval_ms, 500),           \
     };                                                                                             \
     DEVICE_DT_INST_DEFINE(n, kscan_ec_matrix_init, NULL, &kscan_ec_matrix_data##n,                 \
-                          &kscan_ec_matrix_config##n, APPLICATION,                                 \
-                          CONFIG_APPLICATION_INIT_PRIORITY, &kscan_ec_matrix_api);
+                          &kscan_ec_matrix_config##n, POST_KERNEL,                                 \
+                          CONFIG_KSCAN_INIT_PRIORITY, &kscan_ec_matrix_api);
 
 DT_INST_FOREACH_STATUS_OKAY(ZKEM_INIT)
