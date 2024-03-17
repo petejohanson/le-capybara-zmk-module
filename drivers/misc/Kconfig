@@ -1,0 +1,5 @@
+
+config ZMK_ADXL362_AWAKE_TRIGGER
+    bool "ADXL362 Awake Trigger"
+    default y
+    depends on SPI && DT_HAS_ZMK_ADXL362_AWAKE_TRIGGER_ENABLED

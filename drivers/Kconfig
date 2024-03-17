@@ -1,2 +1,3 @@
 rsource "kscan/Kconfig"
 rsource "gpio/Kconfig"
+rsource "misc/Kconfig"
