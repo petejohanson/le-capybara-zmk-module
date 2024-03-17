@@ -19,6 +19,11 @@ config ZMK_KSCAN_EC_MATRIX_SETTINGS
 	default y
 	depends on SETTINGS
 
+config ZMK_KSCAN_EC_MATRIX_DYNAMIC_POLL_RATE
+	bool "Dynamic poll rate for power savings"
+
+config ZMK_KSCAN_EC_MATRIX_FAKE_OPEN_DRAIN
+	bool "Simulate open-drain config with input/output"
 
 config ZMK_KSCAN_EC_MATRIX_SCAN_RATE_CALC
 	bool "EC Matrix scan rate calculation"
