@@ -69,6 +69,7 @@ struct kscan_ec_matrix_data {
     struct zmk_kscan_ec_matrix_read_timing read_timing;
 #endif
     struct zmk_kscan_ec_matrix_calibration_entry *calibrations;
+    uint64_t *reported_matrix_state;
     uint64_t matrix_state[];
 };
 
@@ -512,24 +513,37 @@ static void kscan_ec_matrix_read(const struct device *dev) {
     bool have_keys = false;
 #endif // IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_DYNAMIC_POLL_RATE)
 
+    uint64_t diffs[cfg->strobes_len];
     for (int s = 0; s < cfg->strobes_len; s++) {
-        uint64_t row = rows[s];
+        diffs[s] = rows[s] & data->matrix_state[s];
+        if (rows[s] && rows[s] != data->matrix_state[s]) {
+            LOG_DBG("Initial press detected for %d/%lld", s, rows[s] ^ data->matrix_state[s]);
+        }
+        data->matrix_state[s] = rows[s];
+    }
+
+    for (int s = 0; s < cfg->strobes_len; s++) {
+        uint64_t diff = diffs[s];
         for (int r = 0; r < cfg->inputs_len; r++) {
-            if ((data->matrix_state[s] & BIT(r)) != (row & BIT(r))) {
+            if ((data->reported_matrix_state[s] & BIT(r)) != (diff & BIT(r))) {
 #if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_DYNAMIC_POLL_RATE)
                 have_change = true;
 #endif // IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_DYNAMIC_POLL_RATE)
 
+                LOG_DBG("Reporting %d/%d as %s", s, r, (diff & BIT(r)) ? "on" : "off");
                 if (data->callback) {
-                    data->callback(data->dev, s, r, row & BIT(r));
+                    data->callback(data->dev, s, r, diff & BIT(r));
                 }
+            } else if ((rows[s] & BIT(r)) &&
+                       (data->reported_matrix_state[s] & BIT(r)) != (rows[s] & BIT(r))) {
+                LOG_DBG("Bit enabled but not reporting yet %d/%d", s, r);
             }
         }
 
-        data->matrix_state[s] = row;
+        data->reported_matrix_state[s] = diff;
 
 #if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_DYNAMIC_POLL_RATE)
-        have_keys = have_keys || row != 0;
+        have_keys = have_keys || diff != 0;
 #endif // IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_DYNAMIC_POLL_RATE)
     }
 
@@ -778,11 +792,13 @@ static int zkem_pm_action(const struct device *dev, enum pm_device_action action
     PM_DEVICE_DT_INST_DEFINE(n, zkem_pm_action);                                                   \
     COND_CODE_1(DT_INST_NODE_HAS_PROP(n, pinctrl_names), (PINCTRL_DT_INST_DEFINE(n);), ())         \
     static struct zmk_kscan_ec_matrix_calibration_entry calibration_entries_##n[ENTRIES(n)] = {0}; \
+    static uint64_t reported_matrix_states_##n[DT_INST_PROP_LEN(n, strobe_gpios)] = {0};           \
     COND_CODE_1(                                                                                   \
         DT_INST_NODE_HAS_PROP(n, strobe_input_masks),                                              \
         (static const uint32_t strobe_input_masks_##n[] = DT_INST_PROP(n, strobe_input_masks);),   \
         ())                                                                                        \
     static struct kscan_ec_matrix_data kscan_ec_matrix_data##n = {                                 \
+        .reported_matrix_state = reported_matrix_states_##n,                                       \
         .calibrations = calibration_entries_##n,                                                   \
         .matrix_state = {LISTIFY(DT_INST_PROP_LEN(n, strobe_gpios), ZERO, (, ))},                  \
     };                                                                                             \
