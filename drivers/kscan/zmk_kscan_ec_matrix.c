@@ -629,8 +629,14 @@ static void kscan_ec_matrix_thread_main(void *arg1, void *unused1, void *unused2
 
     while (1) {
         k_mutex_lock(&data->mutex, K_FOREVER);
+
+#if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_CALIBRATOR)
         if (data->calibration_callback) {
             calibrate(dev);
+#else
+        if (false) {
+#endif // IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_CALIBRATOR)
+
         } else {
 #if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_SCAN_RATE_CALC)
             timing_start();
