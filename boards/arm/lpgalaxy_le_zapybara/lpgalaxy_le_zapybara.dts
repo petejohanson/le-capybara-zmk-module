@@ -122,30 +122,29 @@
         ;
 
         strobe-gpios
-            = <&gpio1 0  (GPIO_ACTIVE_HIGH)>
-            , <&gpio1 10 (GPIO_ACTIVE_HIGH)>
-            , <&gpio0 3  (GPIO_ACTIVE_HIGH)>
-            , <&gpio1 4  (GPIO_ACTIVE_HIGH)>
+            = <&gpio1 0  (GPIO_ACTIVE_HIGH| NRF_GPIO_DRIVE_H0H1)>
+            , <&gpio1 10 (GPIO_ACTIVE_HIGH| NRF_GPIO_DRIVE_H0H1)>
+            , <&gpio0 3  (GPIO_ACTIVE_HIGH| NRF_GPIO_DRIVE_H0H1)>
+            , <&gpio1 4  (GPIO_ACTIVE_HIGH| NRF_GPIO_DRIVE_H0H1)>
             ;
 
         io-channels = <&adc 1>;
 
-        // TODO: Needs to be this high *when on battery* but not on USB? Variable relax?
-        matrix-relax-us = <110>;
-	    matrix-warm-up-us = <2>;
+        matrix-relax-us = <1>;
+        matrix-warm-up-us = <2>;
         adc-read-settle-us = <1>;
 
         strobe-input-masks = <0 0 0 (BIT(0) + BIT(2) + BIT(4) + BIT(5) + BIT(7) + BIT(9))>;
 
         drain-gpios = <&gpio0 22 GPIO_ACTIVE_HIGH>;
-	    power-gpios = <&gpio0 31 GPIO_ACTIVE_HIGH>;
+        power-gpios = <&gpio0 31 (GPIO_ACTIVE_HIGH | NRF_GPIO_DRIVE_H0H1)>;
 
         sleep-after-secs = <10>;
-        active-polling-interval-ms = <5>;
-        idle-polling-interval-ms = <15>;
-        sleep-polling-interval-ms = <25>;
+        active-polling-interval-ms = <2>;
+        idle-polling-interval-ms = <7>;
+        sleep-polling-interval-ms = <15>;
 
-	    dynamic-polling-interval;
+        dynamic-polling-interval;
     };
 
 
