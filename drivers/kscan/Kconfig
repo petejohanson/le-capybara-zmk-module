@@ -56,7 +56,6 @@ config ZMK_KSCAN_EC_MATRIX_THREAD_STACK_SIZE
 
 config ZMK_KSCAN_EC_MATRIX_CALIBRATOR
 	bool "Build in the calibrator needed for initial setup of the matrix"
-	default y
 
 endif
 

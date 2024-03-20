@@ -178,7 +178,7 @@
 
     cs-gpios = <&gpio0 6 GPIO_ACTIVE_LOW>;
 
-    wakeup_trigger@0 {
+    wakeup_trigger: wakeup_trigger@0 {
         reg = <0>;
 
         spi-max-frequency = <DT_FREQ_M(8)>;
