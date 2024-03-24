@@ -494,7 +494,7 @@ static void kscan_ec_matrix_read(const struct device *dev) {
 
             uint16_t range = calibration->avg_high - calibration->avg_low;
             uint16_t press_limit_raw = calibration->avg_high - (range / 5);
-            uint16_t hys_buffer = calibration->noise * 3;
+            uint16_t hys_buffer = calibration->noise * 4;
             uint16_t press_limit =
                 normalize(press_limit_raw, calibration->avg_low, calibration->avg_high);
             uint16_t release_limit = normalize(press_limit_raw - hys_buffer, calibration->avg_low,
