@@ -11,6 +11,14 @@ config BOARD
 config ZMK_KEYBOARD_NAME
     default "Le Zapybara"
 
+if ZMK_BATTERY_REPORTING
+
+choice ZMK_BATTERY_REPORTING_FETCH_MODE
+	default ZMK_BATTERY_REPORTING_FETCH_MODE_LITHIUM_VOLTAGE
+endchoice
+
+endif
+
 if USB
 
 config USB_NRFX
