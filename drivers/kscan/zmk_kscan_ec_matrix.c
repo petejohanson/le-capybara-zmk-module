@@ -260,7 +260,7 @@ struct sample_results sample(const struct device *dev, int s, int i) {
             avg = ((avg * sample) + val) / (sample + 1);
         }
 
-        k_sleep(K_MSEC(50));
+        k_sleep(K_MSEC(1));
     }
 
     return (struct sample_results){
@@ -351,8 +351,18 @@ void calibrate(const struct device *dev) {
                     continue;
                 }
 
+                // Set the high threshold to half the full range possible
+                uint16_t high_threshold = (1 << (cfg->adc_channel.resolution - 1));
                 uint16_t high_check_val = read_raw_matrix_state(dev, s, i);
-                uint16_t high_threshold = calibration->avg_low + (calibration->noise * 2.5);
+
+                if (high_check_val < high_threshold) {
+                    continue;
+                }
+
+                k_sleep(K_MSEC(1));
+
+                // Double checks to filter funky random one-off spikes
+                high_check_val = read_raw_matrix_state(dev, s, i);
 
                 if (high_check_val < high_threshold) {
                     continue;
