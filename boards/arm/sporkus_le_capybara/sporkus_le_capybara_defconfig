@@ -25,13 +25,7 @@ CONFIG_FLASH_MAP=y
 CONFIG_NVS=y
 CONFIG_SETTINGS_NVS=y
 
-# Takes a massive amount of RAM, be sure it is off.
-CONFIG_FLASH_SHELL=n
-
 CONFIG_USB_SELF_POWERED=n
-
-# Needed to reduce this to size that will fit on F072
-CONFIG_HEAP_MEM_POOL_SIZE=1024
 
 # clock configuration
 CONFIG_CLOCK_CONTROL=y

@@ -1,0 +1,6 @@
+// We don't want the wakeup trigger to put the suspend the kscan node
+// while it is in the process of calibrating the keyboard, so disable
+// this node.
+&wakeup_trigger {
+    status = "disabled";
+};

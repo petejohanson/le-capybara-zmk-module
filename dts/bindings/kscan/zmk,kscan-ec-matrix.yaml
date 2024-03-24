@@ -13,11 +13,19 @@ properties:
     default: 1
   idle-polling-interval-ms:
     type: int
-    default: 5
+    default: 50
   sleep-polling-interval-ms:
     type: int
-    default: 500
-  matrix-warm-up-ms:
+    default: 200
+  dynamic-polling-interval:
+    type: boolean
+  idle-after-secs:
+    type: int
+    default: 5
+  sleep-after-secs:
+    type: int
+    default: 300
+  matrix-warm-up-us:
     type: int
   matrix-relax-us:
     type: int
@@ -41,6 +49,5 @@ properties:
   
   pinctrl-0:
     required: false
-
   pinctrl-names:
     required: false
