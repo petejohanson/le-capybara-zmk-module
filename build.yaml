@@ -15,9 +15,9 @@
 include:
   - board: sporkus_le_capybara
   - board: sporkus_le_capybara
-    cmake-args: -S enable_ec_calibrator
+    snippet: enable_ec_calibrator
     artifact-name: sporkus_le_capybara_calibrator
   - board: lpgalaxy_le_zapybara
   - board: lpgalaxy_le_zapybara
-    cmake-args: -S enable_ec_calibrator
+    snippet: enable_ec_calibrator
     artifact-name: lpgalaxy_le_zapybara_calibrator
