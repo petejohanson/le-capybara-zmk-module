@@ -85,7 +85,6 @@
         compatible = "gpio-leds";
         blue_led: led_0 {
             gpios = <&gpio0 12 GPIO_ACTIVE_LOW>;
-            label = "Blue LED";
         };
     };
 
@@ -131,12 +130,12 @@
         io-channels = <&adc 1>;
 
         matrix-relax-us = <1>;
-        matrix-warm-up-us = <2>;
+        matrix-warm-up-us = <500>;
         adc-read-settle-us = <1>;
 
         strobe-input-masks = <0 0 0 (BIT(0) + BIT(2) + BIT(4) + BIT(5) + BIT(7) + BIT(9))>;
 
-        drain-gpios = <&gpio0 22 GPIO_ACTIVE_HIGH>;
+        drain-gpios = <&gpio0 22 (GPIO_ACTIVE_HIGH | NRF_GPIO_DRIVE_H0H1)>;
         power-gpios = <&gpio0 31 (GPIO_ACTIVE_HIGH | NRF_GPIO_DRIVE_H0H1)>;
 
         sleep-after-secs = <10>;
