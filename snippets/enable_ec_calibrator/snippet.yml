@@ -8,3 +8,4 @@ boards:
   lpgalaxy_le_zapybara:
     append:
       EXTRA_DTC_OVERLAY_FILE: lpgalaxy_le_zapybara_enable_ec_calibrator.overlay
+      EXTRA_CONF_FILE: lpgalaxy_le_zapybara_enable_ec_calibrator.conf
