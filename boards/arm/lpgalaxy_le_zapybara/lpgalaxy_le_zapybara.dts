@@ -187,6 +187,20 @@
         wakeup-source;
 
         linked-devices = <&matrix>;
+
+        wakeup_trigger_settings: normal {
+            activity-threshold = <21>;
+            activity-time = <0>;
+            inactivity-threshold = <80>;
+            inactivity-time = <100>;
+        };
+
+        wakeup_trigger_sleep_settings: sleep {
+            activity-threshold = <250>;
+            activity-time = <0>;
+            inactivity-threshold = <500>;
+            inactivity-time = <1>;
+        };
     };
 };
 

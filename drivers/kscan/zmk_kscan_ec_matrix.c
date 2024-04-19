@@ -92,13 +92,16 @@ static int kscan_ec_matrix_enable(const struct device *dev) {
     data->last_key_released_at = k_uptime_get();
 #endif // IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_DYNAMIC_POLL_RATE)
 
-    k_thread_resume(&data->thread);
+    k_mutex_unlock(&data->mutex);
+
     return 0;
 }
 
 static int kscan_ec_matrix_disable(const struct device *dev) {
     struct kscan_ec_matrix_data *data = dev->data;
-    k_thread_suspend(&data->thread);
+
+    k_mutex_lock(&data->mutex, K_MSEC(30));
+
     return 0;
 }
 
@@ -493,8 +496,8 @@ static void kscan_ec_matrix_read(const struct device *dev) {
             buf = normalize(buf, calibration->avg_low, calibration->avg_high);
 
             uint16_t range = calibration->avg_high - calibration->avg_low;
-            uint16_t press_limit_raw = calibration->avg_high - (range / 5);
-            uint16_t hys_buffer = calibration->noise * 4;
+            uint16_t press_limit_raw = calibration->avg_high - (range / 6);
+            uint16_t hys_buffer = (range / 3);
             uint16_t press_limit =
                 normalize(press_limit_raw, calibration->avg_low, calibration->avg_high);
             uint16_t release_limit = normalize(press_limit_raw - hys_buffer, calibration->avg_low,
@@ -765,14 +768,15 @@ static int kscan_ec_matrix_init(const struct device *dev) {
 
     data->poll_interval = cfg->active_polling_interval_ms;
 
+    k_mutex_lock(&data->mutex, K_MSEC(5));
+    
     k_thread_create(&data->thread, data->thread_stack, CONFIG_ZMK_KSCAN_EC_MATRIX_THREAD_STACK_SIZE,
                     kscan_ec_matrix_thread_main, (void *)dev, NULL, NULL,
                     K_PRIO_COOP(CONFIG_ZMK_KSCAN_EC_MATRIX_THREAD_PRIORITY), 0, K_NO_WAIT);
 
-    k_thread_suspend(&data->thread);
-
     return 0;
 }
+
 static const struct kscan_driver_api kscan_ec_matrix_api = {
     .config = kscan_ec_matrix_configure,
     .enable_callback = kscan_ec_matrix_enable,

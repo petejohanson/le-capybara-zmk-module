@@ -14,13 +14,23 @@
 #include <zephyr/drivers/sensor.h>
 #include <zephyr/init.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/led.h>
 #include <zephyr/pm/device.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/__assert.h>
 #include <zephyr/drivers/spi.h>
 #include <zephyr/logging/log.h>
 
+#include <le_capybara/drivers/misc/adxl362.h>
+
 #include "adxl362.h"
+
+#if IS_ENABLED(CONFIG_ZMK_ADXL362_AWAKE_TRIGGER_LED_DEBUG)
+
+static const struct device *led_dev = DEVICE_DT_GET(DT_PARENT(DT_ALIAS(led0)));
+static uint8_t led_idx = DT_NODE_CHILD_IDX(DT_ALIAS(led0));
+
+#endif // IS_ENABLED(CONFIG_ZMK_ADXL362_AWAKE_TRIGGER_LED_DEBUG)
 
 LOG_MODULE_REGISTER(ADXL362_AWAKE_TRIGGER, CONFIG_LOG_DEFAULT_LEVEL);
 
@@ -86,15 +96,9 @@ static int zaat_interrupt_config(const struct device *dev, uint8_t int1, uint8_t
     return ret = zaat_reg_access(dev, ADXL362_WRITE_REG, ADXL362_REG_INTMAP2, &int2, 1);
 }
 
-int zaat_get_status(const struct device *dev, uint8_t *status) {
-    return zaat_get_reg(dev, status, ADXL362_REG_STATUS, 1);
-}
-
-int zaat_clear_data_ready(const struct device *dev) {
-    uint8_t buf;
-    /* Reading any data register clears the data ready interrupt */
-    return zaat_get_reg(dev, &buf, ADXL362_REG_XDATA, 1);
-}
+// static int zaat_get_status(const struct device *dev, uint8_t *status) {
+//     return zaat_get_reg(dev, status, ADXL362_REG_STATUS, 1);
+// }
 
 static int zaat_software_reset(const struct device *dev) {
     return zaat_set_reg(dev, ADXL362_RESET_KEY, ADXL362_REG_SOFT_RESET, 1);
@@ -278,29 +282,6 @@ int zaat_set_interrupt_mode(const struct device *dev, uint8_t mode) {
     return 0;
 }
 
-// static int zaat_sample_fetch(const struct device *dev,
-// 				enum sensor_channel chan)
-// {
-// 	struct zaat_data *data = dev->data;
-// 	int16_t buf[4];
-// 	int ret;
-
-// 	__ASSERT_NO_MSG(chan == SENSOR_CHAN_ALL);
-
-// 	ret = zaat_get_reg(dev, (uint8_t *)buf, ADXL362_REG_XDATA_L,
-// 			      sizeof(buf));
-// 	if (ret) {
-// 		return ret;
-// 	}
-
-// 	data->acc_x = sys_le16_to_cpu(buf[0]);
-// 	data->acc_y = sys_le16_to_cpu(buf[1]);
-// 	data->acc_z = sys_le16_to_cpu(buf[2]);
-// 	data->temp = sys_le16_to_cpu(buf[3]);
-
-// 	return 0;
-// }
-
 static inline int zaat_range_to_scale(int range) {
     /* See table 1 in specifications section of datasheet */
     switch (range) {
@@ -315,18 +296,8 @@ static inline int zaat_range_to_scale(int range) {
     }
 }
 
-static void zaat_accel_convert(struct sensor_value *val, int accel, int range) {
-    int scale = zaat_range_to_scale(range);
-    long micro_ms2 = accel * SENSOR_G / scale;
-
-    __ASSERT_NO_MSG(scale != -EINVAL);
-
-    val->val1 = micro_ms2 / 1000000;
-    val->val2 = micro_ms2 % 1000000;
-}
-
-static int zaat_chip_init(const struct device *dev) {
-    const struct zaat_config *config = dev->config;
+static int zaat_set_awake_config(const struct device *dev,
+                                 const struct zaat_awake_config *awake_config) {
     int ret;
 
     /* Configures activity detection.
@@ -342,7 +313,8 @@ static int zaat_chip_init(const struct device *dev) {
      *			time / ODR,
      *		where ODR - is the output data rate.
      */
-    ret = zaat_setup_activity_detection(dev, 1, 72, 0);
+    ret = zaat_setup_activity_detection(dev, 1, awake_config->activity_threshold,
+                                        awake_config->activity_time);
     if (ret) {
         return ret;
     }
@@ -360,10 +332,63 @@ static int zaat_chip_init(const struct device *dev) {
      *			time / ODR,
      *		where ODR - is the output data rate.
      */
-    ret = zaat_setup_inactivity_detection(dev, 1, 150, 100);
-    if (ret) {
-        return ret;
+    return zaat_setup_inactivity_detection(dev, 1, awake_config->inactivity_threshold,
+                                           awake_config->inactivity_time);
+}
+
+int adxl362_awake_trigger_set_activity_limit(const struct device *dev,
+                                             enum adxl362_awake_trigger_activity_limit limit) {
+    const struct zaat_config *cfg = dev->config;
+    struct zaat_data *data = dev->data;
+
+    int ret = -ENOTSUP;
+    switch (limit) {
+    case ADXL362_AWAKE_TRIGGER_ACTIVITY_LIMIT_NORMAL:
+        ret = zaat_set_awake_config(dev, &cfg->normal_awake_config);
+        if (ret < 0) {
+            LOG_WRN("Failed to set normal awake config");
+        }
+        ret = gpio_pin_interrupt_configure_dt(&cfg->interrupt, GPIO_INT_EDGE_BOTH);
+    case ADXL362_AWAKE_TRIGGER_ACTIVITY_LIMIT_SLEEP:
+        gpio_remove_callback(cfg->interrupt.port, &data->gpio_cb);
+        ret = zaat_set_awake_config(dev, &cfg->sleep_awake_config);
+
+        // After setting the config, disable then resume measurement/autosleep, etc. to ensure
+        // new sleep config is applied and in effect
+        ret = zaat_set_reg(dev, ADXL362_POWER_CTL_MEASURE(ADXL362_MEASURE_STANDBY),
+                           ADXL362_REG_POWER_CTL, 1);
+        ret = zaat_set_reg(dev,
+                           ADXL362_POWER_CTL_AUTOSLEEP | ADXL362_POWER_CTL_WAKEUP |
+                               ADXL362_POWER_CTL_MEASURE(ADXL362_MEASURE_ON),
+                           ADXL362_REG_POWER_CTL, 1);
+
+        if (ret >= 0) {
+            k_sleep(K_MSEC(50));
+            int tries_left = 5;
+            while ((tries_left--) >= 0 && gpio_pin_get_dt(&cfg->interrupt) > 0) {
+                uint8_t status, ctl;
+                zaat_get_reg(dev, &status, ADXL362_REG_STATUS, 1);
+                zaat_get_reg(dev, &ctl, ADXL362_REG_ACT_INACT_CTL, 1);
+                k_sleep(K_MSEC(50));
+            }
+
+            if (tries_left < 0) {
+                LOG_ERR("Failed to set into inactive state with current settings");
+                return -ECANCELED;
+            }
+
+            ret = gpio_pin_interrupt_configure_dt(&cfg->interrupt, GPIO_INT_LEVEL_ACTIVE);
+        }
     }
+
+    return ret;
+}
+
+static int zaat_chip_init(const struct device *dev) {
+    const struct zaat_config *config = dev->config;
+    int ret;
+
+    zaat_set_awake_config(dev, &config->normal_awake_config);
 
     /* Configures the FIFO feature. */
     ret = zaat_fifo_setup(dev, ADXL362_FIFO_DISABLE, 0, 0);
@@ -391,7 +416,7 @@ static int zaat_chip_init(const struct device *dev) {
      *		ADXL362_ODR_200_HZ   -  200Hz
      *		ADXL362_ODR_400_HZ   -  400Hz
      */
-    ret = zaat_set_output_rate(dev, ADXL362_ODR_12_5_HZ);
+    ret = zaat_set_output_rate(dev, ADXL362_ODR_400_HZ);
     if (ret) {
         return ret;
     }
@@ -411,6 +436,28 @@ static int zaat_chip_init(const struct device *dev) {
     return 0;
 }
 
+static void suspend_devices_cb(struct k_work *work) {
+    struct zaat_data *drv_data = CONTAINER_OF(work, struct zaat_data, suspend_work);
+
+    const struct device *my_dev = drv_data->dev;
+    const struct zaat_config *cfg = my_dev->config;
+
+    for (int i = 0; i < cfg->linked_devices_size; i++) {
+        pm_device_action_run(cfg->linked_devices[i], PM_DEVICE_ACTION_SUSPEND);
+    }
+}
+
+static void resume_devices_cb(struct k_work *work) {
+    struct zaat_data *drv_data = CONTAINER_OF(work, struct zaat_data, resume_work);
+
+    const struct device *my_dev = drv_data->dev;
+    const struct zaat_config *cfg = my_dev->config;
+
+    for (int i = 0; i < cfg->linked_devices_size; i++) {
+        pm_device_action_run(cfg->linked_devices[i], PM_DEVICE_ACTION_RESUME);
+    }
+}
+
 static void zaat_gpio_callback(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
     struct zaat_data *drv_data = CONTAINER_OF(cb, struct zaat_data, gpio_cb);
 
@@ -421,19 +468,17 @@ static void zaat_gpio_callback(const struct device *dev, struct gpio_callback *c
     int val = gpio_pin_get_dt(&cfg->interrupt);
 
     if (val) {
-        LOG_WRN("WAKEUP");
-        for (int i = 0; i < cfg->linked_devices_size; i++) {
-            LOG_WRN("Resume %s", cfg->linked_devices[i]->name);
-            pm_device_action_run(cfg->linked_devices[i], PM_DEVICE_ACTION_RESUME);
-        }
+#if IS_ENABLED(CONFIG_ZMK_ADXL362_AWAKE_TRIGGER_LED_DEBUG)
+        led_off(led_dev, led_idx);
+#endif // IS_ENABLED(CONFIG_ZMK_ADXL362_AWAKE_TRIGGER_LED_DEBUG)
+        k_work_cancel(&drv_data->suspend_work);
+        k_work_submit(&drv_data->resume_work);
     } else {
-
-        LOG_WRN("SUSPEND");
-
-        for (int i = 0; i < cfg->linked_devices_size; i++) {
-            LOG_WRN("Suspend %s", cfg->linked_devices[i]->name);
-            pm_device_action_run(cfg->linked_devices[i], PM_DEVICE_ACTION_SUSPEND);
-        }
+#if IS_ENABLED(CONFIG_ZMK_ADXL362_AWAKE_TRIGGER_LED_DEBUG)
+        led_on(led_dev, led_idx);
+#endif // IS_ENABLED(CONFIG_ZMK_ADXL362_AWAKE_TRIGGER_LED_DEBUG)
+        k_work_cancel(&drv_data->resume_work);
+        k_work_submit(&drv_data->suspend_work);
     }
 }
 
@@ -484,6 +529,7 @@ static int zaat_init_interrupt(const struct device *dev) {
  */
 static int zaat_init(const struct device *dev) {
     const struct zaat_config *config = dev->config;
+    struct zaat_data *data = dev->data;
     uint8_t value = 0;
     int err;
 
@@ -492,6 +538,9 @@ static int zaat_init(const struct device *dev) {
         return -EINVAL;
     }
 
+    k_work_init(&data->suspend_work, suspend_devices_cb);
+    k_work_init(&data->resume_work, resume_devices_cb);
+
     err = zaat_software_reset(dev);
 
     if (err) {
@@ -499,7 +548,7 @@ static int zaat_init(const struct device *dev) {
         return -ENODEV;
     }
 
-    k_sleep(K_MSEC(5));
+    k_sleep(K_MSEC(1));
 
     (void)zaat_get_reg(dev, &value, ADXL362_REG_PARTID, 1);
     if (value != ADXL362_PART_ID) {
@@ -560,9 +609,12 @@ static int zaat_init(const struct device *dev) {
                                                                                                    \
     static const struct zaat_config zaat_config_##inst = {                                         \
         .bus = SPI_DT_SPEC_INST_GET(inst, SPI_WORD_SET(8) | SPI_TRANSFER_MSB, 0),                  \
-        .interrupt = COND_CODE_1(DT_INST_HAS_PROP(inst, int1_gpios),                               \
-                                 (GPIO_DT_SPEC_INST_GET(inst, int1_gpios)),                        \
-                                 (GPIO_DT_SPEC_INST_GET(inst, int2_gpios))),                       \
+        .normal_awake_config = ZAAT_AWAKE_CONFIG(inst, normal),                                    \
+        COND_CODE_1(IS_ENABLED(CONFIG_ZMK_ADXL362_AWAKE_TRIGGER_SLEEP),                            \
+                    (.sleep_awake_config = ZAAT_AWAKE_CONFIG(inst, sleep), ), ())                  \
+            .interrupt = COND_CODE_1(DT_INST_HAS_PROP(inst, int1_gpios),                           \
+                                     (GPIO_DT_SPEC_INST_GET(inst, int1_gpios)),                    \
+                                     (GPIO_DT_SPEC_INST_GET(inst, int2_gpios))),                   \
         .linked_devices = linked_devices_##inst,                                                   \
         .linked_devices_size = DT_INST_PROP_LEN(inst, linked_devices),                             \
     };                                                                                             \
