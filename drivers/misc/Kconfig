@@ -3,3 +3,14 @@ config ZMK_ADXL362_AWAKE_TRIGGER
     bool "ADXL362 Awake Trigger"
     default y
     depends on SPI && DT_HAS_ZMK_ADXL362_AWAKE_TRIGGER_ENABLED
+    select PM_DEVICE
+
+if ZMK_ADXL362_AWAKE_TRIGGER
+
+config ZMK_ADXL362_AWAKE_TRIGGER_SLEEP
+    bool "Sleep Mode"
+
+config ZMK_ADXL362_AWAKE_TRIGGER_LED_DEBUG
+    bool "Drive led0 alias for awake/sleep state for debugging purposes"
+
+endif

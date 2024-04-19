@@ -170,6 +170,13 @@
 #define ADXL362_TEMP_MC_PER_LSB 65
 #define ADXL362_TEMP_BIAS_LSB 350
 
+struct zaat_awake_config {
+    uint16_t activity_threshold;
+    uint16_t activity_time;
+    uint16_t inactivity_threshold;
+    uint16_t inactivity_time;
+};
+
 struct zaat_config {
     struct spi_dt_spec bus;
     struct gpio_dt_spec interrupt;
@@ -178,6 +185,8 @@ struct zaat_config {
     uint8_t power_ctl;
     const struct device **linked_devices;
     size_t linked_devices_size;
+    struct zaat_awake_config normal_awake_config;
+    struct zaat_awake_config sleep_awake_config;
 };
 
 struct zaat_data {
@@ -194,6 +203,17 @@ struct zaat_data {
 
     const struct device *dev;
     struct gpio_callback gpio_cb;
+    struct k_work suspend_work;
+    struct k_work resume_work;
 };
+
+#define ZAAT_AWAKE_CONFIG(inst, name) \
+    { \
+        .activity_threshold = DT_PROP(DT_INST_CHILD(inst, name), activity_threshold), \
+        .activity_time = DT_PROP(DT_INST_CHILD(inst, name), activity_time), \
+        .inactivity_threshold = DT_PROP(DT_INST_CHILD(inst, name), inactivity_threshold), \
+        .inactivity_time = DT_PROP(DT_INST_CHILD(inst, name), inactivity_time), \
+    }
+
 
 #endif /* ZEPHYR_DRIVERS_SENSOR_ADXL362_ADXL362_H_ */
