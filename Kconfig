@@ -1,6 +1,5 @@
 rsource "drivers/Kconfig"
 
-
 config SLEEP_AWAKE_TRIGGER
     bool "Awake trigger support for ZMK sleep wake-up"
     default y
