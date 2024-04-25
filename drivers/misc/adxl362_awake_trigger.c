@@ -416,7 +416,7 @@ static int zaat_chip_init(const struct device *dev) {
      *		ADXL362_ODR_200_HZ   -  200Hz
      *		ADXL362_ODR_400_HZ   -  400Hz
      */
-    ret = zaat_set_output_rate(dev, ADXL362_ODR_400_HZ);
+    ret = zaat_set_output_rate(dev, ADXL362_ODR_12_5_HZ);
     if (ret) {
         return ret;
     }

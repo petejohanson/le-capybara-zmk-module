@@ -129,7 +129,7 @@
 
         io-channels = <&adc 1>;
 
-        matrix-relax-us = <1>;
+        matrix-relax-us = <3>;
         matrix-warm-up-us = <500>;
         adc-read-settle-us = <1>;
 
@@ -140,8 +140,8 @@
 
         sleep-after-secs = <10>;
         active-polling-interval-ms = <2>;
-        idle-polling-interval-ms = <7>;
-        sleep-polling-interval-ms = <15>;
+        idle-polling-interval-ms = <3>;
+        sleep-polling-interval-ms = <4>;
 
         dynamic-polling-interval;
     };
@@ -192,14 +192,14 @@
             activity-threshold = <21>;
             activity-time = <0>;
             inactivity-threshold = <80>;
-            inactivity-time = <100>;
+            inactivity-time = <50>;
         };
 
         wakeup_trigger_sleep_settings: sleep {
             activity-threshold = <250>;
             activity-time = <0>;
             inactivity-threshold = <500>;
-            inactivity-time = <1>;
+            inactivity-time = <0>;
         };
     };
 };
