@@ -15,6 +15,9 @@
 include:
   - board: sporkus_le_capybara
   - board: sporkus_le_capybara
+    snippet: layout-36-keys
+    artifact-name: sporkus_le_capybara_36_keys
+  - board: sporkus_le_capybara
     snippet: enable_ec_calibrator
     artifact-name: sporkus_le_capybara_calibrator
   - board: lpgalaxy_le_zapybara
