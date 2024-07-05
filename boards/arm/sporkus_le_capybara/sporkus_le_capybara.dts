@@ -67,8 +67,6 @@
     chosen {
         zephyr,sram = &sram0;
         zephyr,flash = &flash0;
-        zephyr,console = &cdc_acm_uart;
-        zephyr,shell-uart = &cdc_acm_uart;
         zmk,kscan = &matrix;
         zmk,matrix_transform = &transform;
         /* TODO: Enable once we support the IC for underglow
@@ -158,7 +156,7 @@
     };
 };
 
-&usb {
+zephyr_udc0: &usb {
     status = "okay";
 
     pinctrl-0 = <&usb_dm_pa11 &usb_dp_pa12>;
@@ -166,10 +164,6 @@
 
     // Overriden to lower RAM usage.
     num-bidir-endpoints = <4>;
-
-    cdc_acm_uart: cdc_acm_uart {
-        compatible = "zephyr,cdc-acm-uart";
-    };
 };
 
 // Enable all the clocks!
