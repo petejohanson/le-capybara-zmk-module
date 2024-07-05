@@ -1,6 +1,7 @@
 name: enable_ec_calibrator
 append:
   EXTRA_CONF_FILE: enable_ec_calibrator.conf
+  EXTRA_DTC_OVERLAY_FILE: enable_ec_calibrator.overlay
 boards:
   sporkus_le_capybara:
     append:
