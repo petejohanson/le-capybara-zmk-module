@@ -1,0 +1,10 @@
+
+&thirty_six_matrix { status = "okay"; };
+&matrix { status = "disabled"; };
+
+/ {
+	chosen {
+		zmk,matrix-transform = &thirty_six_transform;
+		zmk,kscan = &thirty_six_matrix;
+	};
+};

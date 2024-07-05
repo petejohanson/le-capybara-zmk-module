@@ -1,0 +1,5 @@
+name: layout-36-keys
+boards:
+  sporkus_le_capybara:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: sporkus_le_capybara_layout_36_keys.overlay
