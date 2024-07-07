@@ -68,20 +68,26 @@ static void calibrate_cb(const struct zmk_kscan_ec_matrix_calibration_event *ev,
         shell_print(sh, "\nHigh value sampling begins. Please slowly press each key in sequence, releasing once an asterisk appears");
         break;
     case CALIBRATION_EV_POSITION_LOW_DETERMINED:
+#if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_VERBOSE_CALIBRATOR)
+        	shell_print(sh, "Key at (%d,%d) is calibrated with avg low %d, noise: %d",
+        	            ev->data.position_low_determined.strobe, ev->data.position_low_determined.input,
+        	            ev->data.position_low_determined.low_avg,
+        	            ev->data.position_low_determined.noise);
+#else
 		shell_fprintf(sh, SHELL_NORMAL, "*");
-        // shell_print(sh, "Key at (%d,%d) is calibrated with avg low %d, noise: %d",
-        //             ev->data.position_low_determined.strobe, ev->data.position_low_determined.input,
-        //             ev->data.position_low_determined.low_avg,
-        //             ev->data.position_low_determined.noise);
+#endif // IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_VERBOSE_CALIBRATOR)
         break;
     case CALIBRATION_EV_POSITION_COMPLETE:
+#if IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_VERBOSE_CALIBRATOR)
+        	shell_print(sh,
+        	            "Key at (%d,%d) is calibrated with avg low %d, avg high %d, noise: %d, SNR: %d",
+        	            ev->data.position_complete.strobe,
+        	            ev->data.position_complete.input, ev->data.position_complete.low_avg,
+        	            ev->data.position_complete.high_avg, ev->data.position_complete.noise,
+        	            ev->data.position_complete.snr);
+#else
 		shell_fprintf(sh, SHELL_NORMAL, "*");
-        // shell_print(sh,
-        //             "Key at (%d,%d) is calibrated with avg low %d, avg high %d, noise: %d, SNR: %d",
-        //             ev->data.position_complete.strobe,
-        //             ev->data.position_complete.input, ev->data.position_complete.low_avg,
-        //             ev->data.position_complete.high_avg, ev->data.position_complete.noise,
-        //             ev->data.position_complete.snr);
+#endif // IS_ENABLED(CONFIG_ZMK_KSCAN_EC_MATRIX_VERBOSE_CALIBRATOR)
         break;
     case CALIBRATION_EV_COMPLETE:
         shell_prompt_change(sh, CONFIG_SHELL_PROMPT_UART);
