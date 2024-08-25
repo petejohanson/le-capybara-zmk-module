@@ -56,6 +56,18 @@
     power-gpios = <&gpio0 31 (GPIO_ACTIVE_HIGH | NRF_GPIO_DRIVE_H0H1)>;
 };
 
+&thirty_six_matrix {
+    strobe-gpios
+        = <&gpio1 0  (GPIO_ACTIVE_HIGH| NRF_GPIO_DRIVE_H0H1)>
+        , <&gpio1 10 (GPIO_ACTIVE_HIGH| NRF_GPIO_DRIVE_H0H1)>
+        , <&gpio0 3  (GPIO_ACTIVE_HIGH| NRF_GPIO_DRIVE_H0H1)>
+        , <&gpio1 4  (GPIO_ACTIVE_HIGH| NRF_GPIO_DRIVE_H0H1)>
+        ;
+
+    drain-gpios = <&gpio0 22 (GPIO_ACTIVE_HIGH | NRF_GPIO_DRIVE_H0H1)>;
+    power-gpios = <&gpio0 31 (GPIO_ACTIVE_HIGH | NRF_GPIO_DRIVE_H0H1)>;
+};
+
 &spi1_default {
     group1 {
         psels = <NRF_PSEL(SPIM_MOSI, 1, 9)>,
