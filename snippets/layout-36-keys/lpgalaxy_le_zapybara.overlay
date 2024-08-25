@@ -1,0 +1,6 @@
+
+/ {
+    chosen {
+        zmk,physical-layout = &thirty_six_layout;
+    };
+};
