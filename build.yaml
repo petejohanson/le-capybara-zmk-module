@@ -21,8 +21,16 @@ include:
     snippet: "layout-36-keys;enable_ec_calibrator"
     artifact-name: sporkus_le_capybara_36_keys_calibrator
   - board: sporkus_le_capybara
+    snippet: "layout-36-keys;enable_ec_calibrator"
+    cmake-args: -DCONFIG_ZMK_KSCAN_EC_MATRIX_SETTINGS_INIT_LOAD=n
+    artifact-name: sporkus_le_capybara_36_keys_calibrator_no_load
+  - board: sporkus_le_capybara
     snippet: enable_ec_calibrator
     artifact-name: sporkus_le_capybara_calibrator
+  - board: sporkus_le_capybara
+    snippet: enable_ec_calibrator
+    cmake-args: -DCONFIG_ZMK_KSCAN_EC_MATRIX_SETTINGS_INIT_LOAD=n
+    artifact-name: sporkus_le_capybara_calibrator_no_load
   - board: lpgalaxy_le_zapybara
   - board: lpgalaxy_le_zapybara
     snippet: enable_ec_calibrator
