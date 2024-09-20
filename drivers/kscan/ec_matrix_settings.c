@@ -65,6 +65,8 @@ int zmk_kscan_ec_matrix_settings_save_calibration(const struct device *dev) {
 #define LOAD_CALL(n) zmk_kscan_ec_matrix_settings_load_calibration(DEVICE_DT_GET(DT_DRV_INST(n)));
 
 static int zmk_kscan_ec_matrix_settings_init(void) {
+    // TODO: Avoid duplicating this from the ZMK call to init?
+    settings_subsys_init();
     DT_INST_FOREACH_STATUS_OKAY(LOAD_CALL)
 
     return 0;
