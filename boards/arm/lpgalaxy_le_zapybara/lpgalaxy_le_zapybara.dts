@@ -43,7 +43,6 @@
     label: label {                        \
     	compatible = "zmk,gpio-mux";            \
         gpio-controller;                        \
-        ngpios = <8>;                           \
         #gpio-cells = <2>;                      \
     };
 
