@@ -1,0 +1,12 @@
+board:
+  name: le_zapybara
+  vendor: lpgalaxy
+  socs:
+    - name: nrf52840
+  revision:
+    format: major.minor.patch
+    default: 0.0.2
+    exact: true
+    revisions:
+    - name: 0.0.2
+    - name: 0.0.1

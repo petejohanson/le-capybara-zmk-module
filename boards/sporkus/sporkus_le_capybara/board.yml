@@ -1,0 +1,5 @@
+board:
+  name: sporkus_le_capybara
+  vendor: sporkus
+  socs:
+    - name: stm32f072xb

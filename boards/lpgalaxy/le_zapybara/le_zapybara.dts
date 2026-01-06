@@ -6,6 +6,7 @@
 
 /dts-v1/;
 #include <nordic/nrf52840_qiaa.dtsi>
+#include <common/nordic/nrf52840_uf2_boot_mode.dtsi>
 
 #include <zephyr/dt-bindings/dt-util.h>
 #include <zephyr/dt-bindings/adc/adc.h>
@@ -77,7 +78,7 @@
 
 / {
     model = "Le Zapybara";
-    compatible = "sporkus,le_zapybara", "nordic,nrf52840";
+    compatible = "lpgalaxy,le_zapybara", "nordic,nrf52840";
 
     chosen {
         zephyr,code-partition = &code_partition;
@@ -288,7 +289,6 @@
 &gpio1 {
 	status = "okay";
 };
-
 
 zephyr_udc0: &usbd {
 	status = "okay";

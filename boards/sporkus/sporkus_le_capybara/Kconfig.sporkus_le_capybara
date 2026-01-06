@@ -1,0 +1,11 @@
+# Copyright (c) 2020 The ZMK Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+config BOARD_SPORKUS_LE_CAPYBARA
+	select SOC_STM32F072XB
+	imply RETAINED_MEM
+	imply RETENTION
+	imply RETENTION_BOOT_MODE
+	imply STM32_BOOTLOADER
+	imply RTC
+	imply BBRAM

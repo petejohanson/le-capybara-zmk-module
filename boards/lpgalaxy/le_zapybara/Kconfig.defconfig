@@ -3,10 +3,7 @@
 # Copyright (c) 2020 The ZMK Contributors
 # SPDX-License-Identifier: MIT
 
-if BOARD_LPGALAXY_LE_ZAPYBARA
-
-config BOARD
-    default "lpgalaxy_le_zapybara"
+if BOARD_LE_ZAPYBARA
 
 config ZMK_KEYBOARD_NAME
     default "Le Zapybara"
@@ -36,4 +33,4 @@ endif # USB
 config BT_CTLR
 	default BT
 
-endif # BOARD_LPGALAXY_LE_ZAPYBARA
+endif # BOARD_LE_ZAPYBARA
